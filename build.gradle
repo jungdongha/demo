@@ -1,0 +1,57 @@
+plugins {
+    id 'java'
+    id 'org.springframework.boot' version '3.4.0'
+    id 'io.spring.dependency-management' version '1.1.7'
+}
+
+ext {
+    springAiVersion = "1.0.0-M6"
+}
+
+group = 'com.obigo'
+version = '0.0.1-SNAPSHOT'
+description = 'demo-dong'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(21)
+    }
+}
+
+repositories {
+    mavenCentral()
+    // 3. Spring AI Milestone 패키지를 받아오기 위한 필수 저장소 추가
+    maven { url 'https://repo.spring.io/milestone' }
+}
+
+dependencies {
+    // 4. Web 계층: 'spring-boot-starter-webmvc' 대신 실무 표준인 'spring-boot-starter-web'을 사용한다. (내부에 webmvc 포함됨)
+    implementation 'org.springframework.boot:spring-boot-starter-web'
+    implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
+
+    // (참고) 'spring-boot-h2console'이라는 의존성은 존재하지 않으며, web과 h2가 있으면 yml 설정만으로 자동 활성화된다.
+    runtimeOnly 'com.h2database:h2'
+
+    // 5. Spring AI OpenAI 공식 스타터 의존성 (Groq 연동용)
+    implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter'
+
+    // Lombok 설정
+    compileOnly 'org.projectlombok:lombok'
+    annotationProcessor 'org.projectlombok:lombok'
+
+    // 테스트 환경 설정 (starter-test 하나면 jpa, webmvc 테스트가 대부분 커버된다)
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+dependencyManagement {
+    imports {
+        mavenBom "org.springframework.ai:spring-ai-bom:$springAiVersion"
+    }
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+}
