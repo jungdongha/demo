@@ -31,7 +31,6 @@ spring:
       max-tokens: 2048
 
 # Logging Settings
-# (logging은 spring의 하위 속성이 아니므로 맨 앞으로 들여쓰기를 빼야 한다)
 logging:
   level:
     com.back.myboilerplate: DEBUG
@@ -39,3 +38,14 @@ logging:
 
 server:
   port: 8090
+
+naver:
+  api:
+    client-id : ${NAVER_CLINET_ID}
+    client-secret : ${NAVER_CLIENT_SECRET}
+    news-url: https://openapi.naver.com/v1/search/news.json
+
+stock:
+  yahoo:
+    rss-url: https://finance.yahoo.com/rss/headline?s=
+

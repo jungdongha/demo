@@ -29,11 +29,17 @@ dependencies {
     implementation 'org.springframework.boot:spring-boot-starter-web'
     implementation 'org.springframework.boot:spring-boot-starter-data-jpa'
 
+    implementation 'org.springframework.boot:spring-boot-starter-webflux'
+    testImplementation 'io.projectreactor:reactor-test'
+
     // (참고) 'spring-boot-h2console'이라는 의존성은 존재하지 않으며, web과 h2가 있으면 yml 설정만으로 자동 활성화된다.
     runtimeOnly 'com.h2database:h2'
 
     // 5. Spring AI OpenAI 공식 스타터 의존성 (Groq 연동용)
     implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter'
+
+    // 웹 크롤링: Jsoup (정적 HTML 파싱 라이브러리)
+    implementation 'org.jsoup:jsoup:1.18.3'
 
     // Lombok 설정
     compileOnly 'org.projectlombok:lombok'
