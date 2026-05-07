@@ -16,9 +16,9 @@ class NaverFinanceCrawlerTest {
     void crawl() {
 
         //given
-        String ticekr = "삼성전자";
+        String ticker = "삼성전자";
         //when
-        String result = naverFinanceCrawler.crawl(ticekr);
+        String result = naverFinanceCrawler.crawl(ticker);
         //then
         System.out.println(result);
 

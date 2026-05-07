@@ -9,7 +9,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 @Slf4j
 @Component
@@ -24,44 +27,53 @@ public class YahooFinanceCrawler implements NewsCrawlerStrategy {
     }
 
     @Override
-    public String crawl(String ticker) {
-        String url = yahooRssUrl + ticker;
-        log.info("[YahooFinanceCrawler] 크롤링 시작 - ticker: {}, url: {}", ticker, url);
+    public String crawl(String query) {
+        String url = yahooRssUrl + query;
+        log.info("[YahooFinanceCrawler] 크롤링 시작 - ticker: {}", query);
 
         try {
-            // ★ RSS는 XML 포맷이라 Jsoup이 그대로 파싱 가능
-            //   HTML이 아닌 XML도 Jsoup.connect().get()으로 가져올 수 있음
+            // ★ RSS는 XML 포맷 - Jsoup이 그대로 파싱 가능
             Document doc = Jsoup.connect(url)
                     .userAgent("Mozilla/5.0")
                     .timeout(5000)
                     .get();
 
-            // ★ RSS XML 구조:
-            //   <channel>
-            //     <item>
-            //       <title>뉴스 제목</title>
-            //       <description>요약</description>
-            //     </item>
-            //   </channel>
+            // ★ Elements는 ArrayList<Element>를 상속 → get(i) 바로 사용 가능
             Elements items = doc.select("item");
 
             if (items.isEmpty()) {
-                log.warn("[YahooFinanceCrawler] 뉴스 없음 - ticker: {}", ticker);
+                log.warn("[YahooFinanceCrawler] 뉴스 없음 - ticker: {}", query);
                 return "";
             }
 
-            String result = items.stream()
-                    .map(item -> item.select("title").text()
-                            + "\n"
-                            + item.select("description").text())
+            int count = Math.min(items.size(), 10);
+
+            String result = IntStream.range(0, count)
+                    .mapToObj(i -> {
+                        String title = items.get(i).select("title").text();
+                        String description = items.get(i).select("description").text();
+                        String date = formatDate(items.get(i).select("pubDate").text());
+                        return String.format("[%d] %s\n제목: %s\n내용: %s",
+                                i + 1, date, title, description);
+                    })
                     .collect(Collectors.joining("\n\n"));
 
-            log.info("[YahooFinanceCrawler] 완료 - {}건", items.size());
+            log.info("[YahooFinanceCrawler] 완료 - {}건", count);
             return result;
 
         } catch (IOException e) {
-            log.error("[YahooFinanceCrawler] 크롤링 실패 - ticker: {}, error: {}", ticker, e.getMessage());
+            log.error("[YahooFinanceCrawler] 크롤링 실패 - ticker: {}, error: {}", query, e.getMessage());
             throw new RuntimeException("야후 파이낸스 크롤링 실패: " + e.getMessage());
+        }
+    }
+
+    // ★ RFC 1123 날짜 포맷 파싱: "Wed, 07 May 2026 16:00:00 +0900" → "2026-05-07"
+    private String formatDate(String pubDate) {
+        try {
+            ZonedDateTime zdt = ZonedDateTime.parse(pubDate, DateTimeFormatter.RFC_1123_DATE_TIME);
+            return zdt.format(DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+        } catch (Exception e) {
+            return pubDate;
         }
     }
 }

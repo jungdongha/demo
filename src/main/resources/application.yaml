@@ -41,7 +41,7 @@ server:
 
 naver:
   api:
-    client-id : ${NAVER_CLINET_ID}
+    client-id : ${NAVER_CLIENT_ID}
     client-secret : ${NAVER_CLIENT_SECRET}
     news-url: https://openapi.naver.com/v1/search/news.json
 
