@@ -23,4 +23,8 @@ public class Stock extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private MarketType marketType;
+
+    // ★ 관심 종목 여부 — 모닝 브리핑 배치 대상 구분에 사용
+    @Column(nullable = false)
+    private boolean isWatchlist;
 }
