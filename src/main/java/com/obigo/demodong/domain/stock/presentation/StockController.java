@@ -4,10 +4,13 @@ import com.obigo.demodong.domain.stock.application.dto.response.StockAnalysisRes
 import com.obigo.demodong.domain.stock.application.usecase.StockAnalysisUseCase;
 import com.obigo.demodong.global.common.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import reactor.core.publisher.Flux;
 
 @RestController
 @RequiredArgsConstructor
@@ -24,5 +27,10 @@ public class StockController {
                 StockResponseCode.STOCK_ANALYSIS_SUCCESS,
                 stockAnalysisUseCase.execute(query)
         );
+    }
+
+    @GetMapping(value = "/analyze/{query}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public Flux<ServerSentEvent<String>> analyzeStream(@PathVariable String query) {
+        return stockAnalysisUseCase.executeStream(query);
     }
 }

@@ -1,7 +1,7 @@
 package com.obigo.demodong.domain.ai.application.usecase;
 
 import com.obigo.demodong.domain.ai.application.dto.response.AiResponse;
-import com.obigo.demodong.domain.ai.domain.service.AiChatService;
+import com.obigo.demodong.domain.ai.infrastructure.service.AiChatService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

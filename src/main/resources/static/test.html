@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>주식 분석 테스트</title>
+    <style>
+        body { font-family: monospace; max-width: 800px; margin: 40px auto; padding: 0 20px; }
+        input { width: 300px; padding: 8px; font-size: 16px; }
+        button { padding: 8px 16px; margin-left: 8px; cursor: pointer; }
+        #signal { font-size: 24px; font-weight: bold; margin: 16px 0; }
+        #output {
+            white-space: pre-wrap;
+            background: #f4f4f4;
+            padding: 16px;
+            border-radius: 8px;
+            min-height: 200px;
+            margin-top: 16px;
+            line-height: 1.6;
+        }
+        #status { color: gray; margin-top: 8px; font-size: 13px; }
+    </style>
+</head>
+<body>
+    <h2>📈 주식 분석 테스트</h2>
+    <p>한국: <code>삼성전자</code> &nbsp;|&nbsp; 미국: <code>AAPL</code></p>
+
+    <input type="text" id="query" placeholder="종목명 또는 티커" value="삼성전자" />
+    <button onclick="startSse()">SSE 분석</button>
+    <button onclick="stopSse()" style="background:#eee;">중단</button>
+
+    <div id="signal"></div>
+    <div id="status">대기 중</div>
+    <div id="output"></div>
+
+    <script>
+        let eventSource = null;
+
+        function startSse() {
+            const query = document.getElementById('query').value.trim();
+            if (!query) return;
+
+            stopSse();
+
+            document.getElementById('output').textContent = '';
+            document.getElementById('signal').textContent = '';
+            document.getElementById('status').textContent = '연결 중...';
+
+            eventSource = new EventSource(`http://localhost:8090/api/stock/analyze/${encodeURIComponent(query)}/stream`);
+
+            eventSource.addEventListener('message', e => {
+                document.getElementById('status').textContent = '수신 중...';
+                document.getElementById('output').textContent += e.data;
+            });
+
+            eventSource.addEventListener('done', e => {
+                const signal = e.data;
+                const emoji = signal === 'BUY' ? '🟢' : signal === 'SELL' ? '🔴' : '🟡';
+                document.getElementById('signal').textContent = `${emoji} ${signal}`;
+                document.getElementById('status').textContent = '분석 완료 — DB 저장됨';
+                stopSse();
+            });
+
+            eventSource.addEventListener('error', e => {
+                document.getElementById('status').textContent = '오류: ' + (e.data || '연결 실패');
+                stopSse();
+            });
+        }
+
+        function stopSse() {
+            if (eventSource) {
+                eventSource.close();
+                eventSource = null;
+            }
+        }
+    </script>
+</body>
+</html>

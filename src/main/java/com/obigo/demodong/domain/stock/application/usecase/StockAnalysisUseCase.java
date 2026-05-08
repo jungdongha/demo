@@ -1,6 +1,6 @@
 package com.obigo.demodong.domain.stock.application.usecase;
 
-import com.obigo.demodong.domain.ai.domain.service.AiChatService;
+import com.obigo.demodong.domain.ai.infrastructure.service.AiChatService;
 import com.obigo.demodong.domain.stock.application.dto.response.StockAnalysisResponse;
 import com.obigo.demodong.domain.stock.domain.entity.SignalReport;
 import com.obigo.demodong.domain.stock.domain.entity.Stock;
@@ -15,8 +15,10 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import reactor.core.publisher.Flux;
 
 import java.util.List;
 import java.util.Map;
@@ -67,11 +69,58 @@ public class StockAnalysisUseCase {
         // 5. AI 분석 호출
         String analysis = aiChatService.getChatResponse(systemPrompt, userPrompt);
 
-        // 6. AI 응답에서 signal_type / reason 파싱
+        // 6. AI 응답 저장
+        SignalType signalType = saveReport(query, marketType, rawNews, analysis);
+        log.info("주식 분석 완료 - query:{}, signal :{}", query, signalType);
+        return new StockAnalysisResponse(query, marketType, signalType, analysis);
+    }
+
+    public Flux<ServerSentEvent<String>> executeStream(String query) {
+        MarketType marketType = detectMarketType(query);
+        log.info("sse 주식분석 시작- query: {}, marketType: {}", query, marketType);
+
+        NewsCrawlerStrategy crawler = crawlers.stream()
+                .filter(c -> c.getMarketType() == marketType)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("지원하지 않는 마켓 타입: " + marketType));
+
+        String rawNews = crawler.crawl(query);
+        String systemPrompt = new PromptTemplate(systemPromptResource).render();
+        String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
+                "company", query,
+                "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews
+        ));
+
+        StringBuilder fullContent = new StringBuilder();
+
+        return aiChatService.streamChatResponse(systemPrompt, userPrompt)
+                .doOnNext(fullContent::append)
+                .map(chunk -> ServerSentEvent.<String>builder()
+                        .event("message")
+                        .data(chunk)
+                        .build())
+                .concatWith(Flux.defer(() -> {
+                    String analysis = fullContent.toString();
+                    SignalType signalType = saveReport(query, marketType, rawNews, analysis);
+                    log.info("주식 분석(SSE) 완료 - query: {}, signal: {}", query, signalType);
+                    return Flux.just(ServerSentEvent.<String>builder()
+                            .event("done")
+                            .data(signalType.name())
+                            .build());
+                }))
+                .onErrorResume(e -> {
+                    log.error("주식 분석(SSE) 오류 - query: {}, error: {}", query, e.getMessage());
+                    return Flux.just(ServerSentEvent.<String>builder()
+                            .event("error")
+                            .data(e.getMessage())
+                            .build());
+                });
+    }
+
+    private SignalType saveReport(String query, MarketType marketType, String rawNews, String analysis) {
         SignalType signalType = parseSignalType(analysis);
         String reason = parseReason(analysis);
 
-        // 7. Stock 조회 또는 생성 후 SignalReport 저장
         Stock stock = stockRepository.findByTicker(query)
                 .orElseGet(() -> stockRepository.save(
                         Stock.builder()
@@ -81,7 +130,6 @@ public class StockAnalysisUseCase {
                                 .isWatchlist(false)
                                 .build()
                 ));
-
         signalReportRepository.save(
                 SignalReport.builder()
                         .stock(stock)
@@ -93,8 +141,7 @@ public class StockAnalysisUseCase {
                         .build()
         );
 
-        log.info("주식 분석 완료 - query: {}, signal: {}", query, signalType);
-        return new StockAnalysisResponse(query, marketType, signalType, analysis);
+        return signalType;
     }
 
     // ★ 한글 정규식 [가-힣]: 유니코드 범위로 한글 문자 포함 여부 판단
