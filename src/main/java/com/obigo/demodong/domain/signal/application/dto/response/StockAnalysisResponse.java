@@ -1,7 +1,7 @@
-package com.obigo.demodong.domain.stock.application.dto.response;
+package com.obigo.demodong.domain.signal.application.dto.response;
 
+import com.obigo.demodong.domain.signal.domain.enums.SignalType;
 import com.obigo.demodong.domain.stock.domain.enums.MarketType;
-import com.obigo.demodong.domain.stock.domain.enums.SignalType;
 
 public record StockAnalysisResponse(
         String company,

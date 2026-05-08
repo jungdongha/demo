@@ -1,4 +1,4 @@
-package com.obigo.demodong.domain.stock.domain.enums;
+package com.obigo.demodong.domain.signal.domain.enums;
 
 public enum SourceType {
     ON_DEMAND,  // 사용자 직접 요청

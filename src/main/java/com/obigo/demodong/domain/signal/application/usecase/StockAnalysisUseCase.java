@@ -1,15 +1,15 @@
-package com.obigo.demodong.domain.stock.application.usecase;
+package com.obigo.demodong.domain.signal.application.usecase;
 
 import com.obigo.demodong.domain.ai.infrastructure.service.AiChatService;
-import com.obigo.demodong.domain.stock.application.dto.response.StockAnalysisResponse;
-import com.obigo.demodong.domain.stock.domain.entity.SignalReport;
+import com.obigo.demodong.domain.signal.application.dto.response.StockAnalysisResponse;
+import com.obigo.demodong.domain.signal.domain.entity.SignalReport;
+import com.obigo.demodong.domain.signal.domain.enums.SignalType;
+import com.obigo.demodong.domain.signal.domain.enums.SourceType;
+import com.obigo.demodong.domain.signal.domain.repository.SignalReportRepository;
+import com.obigo.demodong.domain.signal.infrastructure.crawler.NewsCrawlerStrategy;
 import com.obigo.demodong.domain.stock.domain.entity.Stock;
 import com.obigo.demodong.domain.stock.domain.enums.MarketType;
-import com.obigo.demodong.domain.stock.domain.enums.SignalType;
-import com.obigo.demodong.domain.stock.domain.enums.SourceType;
-import com.obigo.demodong.domain.stock.domain.repository.SignalReportRepository;
 import com.obigo.demodong.domain.stock.domain.repository.StockRepository;
-import com.obigo.demodong.domain.stock.infrastructure.crawler.NewsCrawlerStrategy;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.prompt.PromptTemplate;
@@ -33,8 +33,6 @@ public class StockAnalysisUseCase {
     private final StockRepository stockRepository;
     private final SignalReportRepository signalReportRepository;
 
-    // ★ @Value로 classpath의 .st 파일을 Resource로 주입
-    //   system: 역할 + 규칙 (정적), user: 뉴스 데이터 (동적)
     @Value("classpath:prompts/stock-analysis-system.st")
     private Resource systemPromptResource;
 
@@ -43,48 +41,27 @@ public class StockAnalysisUseCase {
 
     @Transactional
     public StockAnalysisResponse execute(String query) {
-        // 1. 마켓 타입 자동 감지: 한글 포함 → KOR, 영문 → USA
         MarketType marketType = detectMarketType(query);
         log.info("주식 분석 시작 - query: {}, marketType: {}", query, marketType);
 
-        // 2. 마켓 타입에 맞는 크롤러 선택
-        // ★ List<NewsCrawlerStrategy>는 Spring이 모든 구현체를 자동 주입
-        //   → NaverFinanceCrawler(KOR), YahooFinanceCrawler(USA) 중 하나 선택
-        NewsCrawlerStrategy crawler = crawlers.stream()
-                .filter(c -> c.getMarketType() == marketType)
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("지원하지 않는 마켓 타입: " + marketType));
-
-        // 3. 뉴스 크롤링 (raw_news_text로 보존)
-        String rawNews = crawler.crawl(query);
-
-        // 4. PromptTemplate으로 system/user 프롬프트 완성
-        // ★ system은 변수 없음(정적), user는 {company}/{news} 치환
+        String rawNews = findCrawler(marketType).crawl(query);
         String systemPrompt = new PromptTemplate(systemPromptResource).render();
         String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
                 "company", query,
                 "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews
         ));
 
-        // 5. AI 분석 호출
         String analysis = aiChatService.getChatResponse(systemPrompt, userPrompt);
-
-        // 6. AI 응답 저장
         SignalType signalType = saveReport(query, marketType, rawNews, analysis);
-        log.info("주식 분석 완료 - query:{}, signal :{}", query, signalType);
+        log.info("주식 분석 완료 - query: {}, signal: {}", query, signalType);
         return new StockAnalysisResponse(query, marketType, signalType, analysis);
     }
 
     public Flux<ServerSentEvent<String>> executeStream(String query) {
         MarketType marketType = detectMarketType(query);
-        log.info("sse 주식분석 시작- query: {}, marketType: {}", query, marketType);
+        log.info("주식 분석(SSE) 시작 - query: {}, marketType: {}", query, marketType);
 
-        NewsCrawlerStrategy crawler = crawlers.stream()
-                .filter(c -> c.getMarketType() == marketType)
-                .findFirst()
-                .orElseThrow(() -> new IllegalStateException("지원하지 않는 마켓 타입: " + marketType));
-
-        String rawNews = crawler.crawl(query);
+        String rawNews = findCrawler(marketType).crawl(query);
         String systemPrompt = new PromptTemplate(systemPromptResource).render();
         String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
                 "company", query,
@@ -117,7 +94,8 @@ public class StockAnalysisUseCase {
                 });
     }
 
-    private SignalType saveReport(String query, MarketType marketType, String rawNews, String analysis) {
+    @Transactional
+    public SignalType saveReport(String query, MarketType marketType, String rawNews, String analysis) {
         SignalType signalType = parseSignalType(analysis);
         String reason = parseReason(analysis);
 
@@ -130,6 +108,7 @@ public class StockAnalysisUseCase {
                                 .isWatchlist(false)
                                 .build()
                 ));
+
         signalReportRepository.save(
                 SignalReport.builder()
                         .stock(stock)
@@ -144,13 +123,17 @@ public class StockAnalysisUseCase {
         return signalType;
     }
 
-    // ★ 한글 정규식 [가-힣]: 유니코드 범위로 한글 문자 포함 여부 판단
+    private NewsCrawlerStrategy findCrawler(MarketType marketType) {
+        return crawlers.stream()
+                .filter(c -> c.getMarketType() == marketType)
+                .findFirst()
+                .orElseThrow(() -> new IllegalStateException("지원하지 않는 마켓 타입: " + marketType));
+    }
+
     private MarketType detectMarketType(String query) {
         return query.matches(".*[가-힣].*") ? MarketType.KOR : MarketType.USA;
     }
 
-    // ★ AI 응답에서 [BUY]/[HOLD]/[SELL] 추출
-    //   프롬프트에서 명시적으로 [] 포맷을 요구했으므로 contains()로 파싱 가능
     private SignalType parseSignalType(String content) {
         if (content.contains("[BUY]")) return SignalType.BUY;
         if (content.contains("[SELL]")) return SignalType.SELL;
@@ -159,22 +142,14 @@ public class StockAnalysisUseCase {
         return SignalType.HOLD;
     }
 
-    // ★ "판단 근거" 섹션 이후 "- "로 시작하는 줄들을 추출
-    //   "---" 구분선을 만나면 추출 종료
     private String parseReason(String content) {
         StringBuilder sb = new StringBuilder();
         boolean capture = false;
         for (String line : content.split("\n")) {
-            if (line.contains("판단 근거")) {
-                capture = true;
-                continue;
-            }
-            if (capture && line.trim().startsWith("-") && !line.trim().startsWith("---")) {
+            if (line.contains("판단 근거")) { capture = true; continue; }
+            if (capture && line.trim().startsWith("-") && !line.trim().startsWith("---"))
                 sb.append(line.trim()).append("\n");
-            }
-            if (capture && line.trim().startsWith("---")) {
-                break;
-            }
+            if (capture && line.trim().startsWith("---")) break;
         }
         return sb.toString().trim();
     }

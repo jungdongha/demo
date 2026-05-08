@@ -1,4 +1,4 @@
-package com.obigo.demodong.domain.stock.infrastructure.crawler;
+package com.obigo.demodong.domain.signal.infrastructure.crawler;
 
 import com.obigo.demodong.domain.stock.domain.enums.MarketType;
 import lombok.extern.slf4j.Slf4j;
@@ -32,13 +32,11 @@ public class YahooFinanceCrawler implements NewsCrawlerStrategy {
         log.info("[YahooFinanceCrawler] 크롤링 시작 - ticker: {}", query);
 
         try {
-            // ★ RSS는 XML 포맷 - Jsoup이 그대로 파싱 가능
             Document doc = Jsoup.connect(url)
                     .userAgent("Mozilla/5.0")
                     .timeout(5000)
                     .get();
 
-            // ★ Elements는 ArrayList<Element>를 상속 → get(i) 바로 사용 가능
             Elements items = doc.select("item");
 
             if (items.isEmpty()) {
@@ -47,14 +45,12 @@ public class YahooFinanceCrawler implements NewsCrawlerStrategy {
             }
 
             int count = Math.min(items.size(), 10);
-
             String result = IntStream.range(0, count)
                     .mapToObj(i -> {
                         String title = items.get(i).select("title").text();
                         String description = items.get(i).select("description").text();
                         String date = formatDate(items.get(i).select("pubDate").text());
-                        return String.format("[%d] %s\n제목: %s\n내용: %s",
-                                i + 1, date, title, description);
+                        return String.format("[%d] %s\n제목: %s\n내용: %s", i + 1, date, title, description);
                     })
                     .collect(Collectors.joining("\n\n"));
 
@@ -67,7 +63,6 @@ public class YahooFinanceCrawler implements NewsCrawlerStrategy {
         }
     }
 
-    // ★ RFC 1123 날짜 포맷 파싱: "Wed, 07 May 2026 16:00:00 +0900" → "2026-05-07"
     private String formatDate(String pubDate) {
         try {
             ZonedDateTime zdt = ZonedDateTime.parse(pubDate, DateTimeFormatter.RFC_1123_DATE_TIME);

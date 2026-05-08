@@ -27,4 +27,8 @@ public class Stock extends BaseEntity {
     // ★ 관심 종목 여부 — 모닝 브리핑 배치 대상 구분에 사용
     @Column(nullable = false)
     private boolean isWatchlist;
+
+    public void updateWatchlist(boolean isWatchlist) {
+        this.isWatchlist = isWatchlist;
+    }
 }

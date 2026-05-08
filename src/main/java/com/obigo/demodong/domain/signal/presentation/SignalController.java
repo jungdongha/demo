@@ -1,7 +1,7 @@
-package com.obigo.demodong.domain.stock.presentation;
+package com.obigo.demodong.domain.signal.presentation;
 
-import com.obigo.demodong.domain.stock.application.dto.response.StockAnalysisResponse;
-import com.obigo.demodong.domain.stock.application.usecase.StockAnalysisUseCase;
+import com.obigo.demodong.domain.signal.application.dto.response.StockAnalysisResponse;
+import com.obigo.demodong.domain.signal.application.usecase.StockAnalysisUseCase;
 import com.obigo.demodong.global.common.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -15,18 +15,13 @@ import reactor.core.publisher.Flux;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/stock")
-public class StockController {
+public class SignalController {
 
     private final StockAnalysisUseCase stockAnalysisUseCase;
 
-    // GET /api/stock/analyze/삼성전자  → KOR
-    // GET /api/stock/analyze/AAPL     → USA
     @GetMapping("/analyze/{query}")
     public ApiResponse<StockAnalysisResponse> analyze(@PathVariable String query) {
-        return ApiResponse.ok(
-                StockResponseCode.STOCK_ANALYSIS_SUCCESS,
-                stockAnalysisUseCase.execute(query)
-        );
+        return ApiResponse.ok(SignalResponseCode.STOCK_ANALYSIS_SUCCESS, stockAnalysisUseCase.execute(query));
     }
 
     @GetMapping(value = "/analyze/{query}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)

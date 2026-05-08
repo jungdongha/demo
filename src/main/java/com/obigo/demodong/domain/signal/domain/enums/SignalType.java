@@ -1,4 +1,4 @@
-package com.obigo.demodong.domain.stock.domain.enums;
+package com.obigo.demodong.domain.signal.domain.enums;
 
 public enum SignalType {
     BUY,   // 매수

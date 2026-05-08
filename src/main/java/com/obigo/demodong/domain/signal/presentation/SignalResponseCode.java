@@ -1,4 +1,4 @@
-package com.obigo.demodong.domain.stock.presentation;
+package com.obigo.demodong.domain.signal.presentation;
 
 import com.obigo.demodong.global.common.response.ResponseCode;
 import lombok.AllArgsConstructor;
@@ -7,7 +7,7 @@ import org.springframework.http.HttpStatus;
 
 @Getter
 @AllArgsConstructor
-public enum StockResponseCode implements ResponseCode {
+public enum SignalResponseCode implements ResponseCode {
 
     STOCK_ANALYSIS_SUCCESS(200, HttpStatus.OK, "주식 분석이 완료되었습니다.");
 
