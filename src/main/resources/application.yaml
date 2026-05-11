@@ -49,3 +49,7 @@ stock:
   yahoo:
     rss-url: https://finance.yahoo.com/rss/headline?s=
 
+
+telegram:
+  bot_token : ${TELEGRAM_BOT_TOKEN}
+  chat-id : ${TELEGRAM_CHAT_ID}

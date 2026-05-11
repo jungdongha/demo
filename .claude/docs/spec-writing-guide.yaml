@@ -1,0 +1,180 @@
+# Spec Writing Guide
+# Last Updated: 2026-02-26
+
+meta:
+  title: Spec Writing Guide
+  type: Meta
+  purpose: Claude AI 에이전트가 프로젝트 컨텍스트를 정확히 파악하고 일관된 코드를 생성하도록 하는 스펙 문서 작성 가이드
+
+format:
+  type: YAML
+  reason: Token Optimized
+
+document_structure:
+  template_location: .claude/docs/templates/feature-spec.yaml
+  output_location: ".claude/features/{domain}/{number}_{feature_name}.yaml"
+
+writing_principles:
+  concise:
+    description: 문장보다는 키워드와 구(Phrase) 위주로 작성하여 토큰을 절약한다
+
+  explicit:
+    description: DTO 이름, 엔티티 이름, API 경로를 정확히 명시한다
+
+  layered:
+    description: Presentation → UseCase → Domain → Infrastructure 데이터 흐름을 준수한다
+
+  validation_first:
+    description: 구현 전 검증 규칙을 먼저 정의하여 비즈니스 로직의 구멍을 막는다
+
+feature_spec_template:
+  description: YAML 기반의 경량화된 기능 명세서 템플릿
+
+  structure:
+    meta:
+      fields:
+        - id: "FEAT-{Number}"
+        - title: "{Feature Name}"
+        - type: "Feature"
+        - author: "{User/Agent}"
+
+    overview:
+      summary: "한 줄 요약: 무엇을 위한 기능인가?"
+      user_story: "As a {Role}, I want to {Action}, so that {Benefit}."
+      goals:
+        - "핵심 목표 1"
+        - "핵심 목표 2"
+
+    technical_spec:
+      api:
+        method: "{GET | POST | PUT | DELETE}"
+        path: "/api/v1/{resource}"
+        summary: "{API 설명}"
+        auth: "{Required Role}"
+        request:
+          dto: "{RequestDtoName}"
+          fields:
+            - name: "{fieldName}"
+              type: "{Type}"
+              required: true
+              validation: "{Constraints}"
+        response:
+          dto: "{ResponseDtoName}"
+          wrapper: "CommonResponse<{Dto}>"
+
+      data_flow:
+        - step: 1
+          layer: Presentation
+          action: "Validate request & Convert to DTO"
+        - step: 2
+          layer: UseCase
+          action: "{비즈니스 로직 요약}"
+          transaction: true
+        - step: 3
+          layer: Domain
+          action: "{Entity 메서드 호출 / 도메인 로직}"
+        - step: 4
+          layer: Infrastructure
+          action: "{Repository 저장 / 외부 API 호출}"
+
+      database:
+        entities:
+          - name: "{EntityName}"
+            action: "{Create | Read | Update | Delete}"
+            fields: "{주요 변경 필드}"
+
+      validation_rules:
+        - "Rule 1: e.g., 이름은 중복될 수 없다"
+        - "Rule 2: e.g., 재고가 0이면 주문 불가"
+
+    testing_strategy:
+      happy_path:
+        - "시나리오 1: 정상 케이스"
+      edge_cases:
+        - "시나리오 2: 예외 케이스"
+        - "시나리오 3: 경계값 테스트"
+
+  example_template: |
+    # Feature Specification: {Feature Name}
+    # Status: Draft | In Progress | Done
+    # Last Updated: YYYY-MM-DD
+
+    meta:
+      id: FEAT-{Number}
+      title: {Feature Name}
+      type: Feature
+      author: {User/Agent}
+
+    overview:
+      summary: >
+        {한 줄 요약}
+      user_story: >
+        As a {Role}, I want to {Action}, so that {Benefit}.
+      goals:
+        - {핵심 목표 1}
+        - {핵심 목표 2}
+
+    technical_spec:
+      api:
+        - method: {GET | POST | PUT | DELETE}
+          path: /api/v1/{resource}
+          summary: {API 설명}
+          auth: {Required Role}
+          request:
+            dto: {RequestDtoName}
+            fields:
+              - name: {fieldName}
+                type: {Type}
+                required: true
+                validation: {Constraints}
+          response:
+            dto: {ResponseDtoName}
+            wrapper: ApiResponse<{Dto}>
+
+      data_flow:
+        - step: 1
+          layer: Presentation
+          action: Validate request & Convert to DTO
+        - step: 2
+          layer: UseCase
+          action: {비즈니스 로직 요약}
+          transaction: true
+        - step: 3
+          layer: Domain
+          action: {Entity 메서드 호출 / 도메인 로직}
+        - step: 4
+          layer: Infrastructure
+          action: {Repository 저장 / 외부 API 호출}
+
+      database:
+        entities:
+          - name: {EntityName}
+            action: {Create | Read | Update | Delete}
+            fields: {주요 변경 필드}
+
+      validation_rules:
+        - {Rule 1}
+        - {Rule 2}
+
+    testing_strategy:
+      happy_path:
+        - {시나리오 1}
+      edge_cases:
+        - {시나리오 2}
+        - {시나리오 3}
+
+best_practices:
+  - rule: Use YAML for all spec documents
+    reason: Token efficiency and structured format
+
+  - rule: Keep descriptions concise
+    reason: Use keywords and phrases instead of full sentences
+
+  - rule: Define validation rules upfront
+    reason: Prevent business logic gaps before implementation
+
+  - rule: Follow layered architecture
+    reason: Maintain clear data flow across layers
+
+  - rule: Include testing strategy
+    reason: Define test scenarios during planning phase

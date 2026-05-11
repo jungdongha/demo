@@ -1,7 +1,10 @@
-# Jurine — Phase 5+ 고도화 로드맵 (벡터 DB & RAG)
+# Jurine — Phase 5+ 고도화 로드맵
+# Last Updated: 2026-05-11
 
-이 문서는 뉴스 기반 시그널(Phase 1~4) 완성 이후의 다음 단계 목표다.  
-현재 프로젝트와 분리하여 별도로 관리한다.
+> **진입 조건**: Phase 1~4 (뉴스 기반 시그널)가 안정적으로 동작한 이후 진행한다.
+> - [ ] 온디맨드 시그널 정상 동작
+> - [ ] 모닝 브리핑 배치 안정화
+> - [ ] 시그널 히스토리 1개월 이상 누적
 
 ---
 
@@ -11,17 +14,48 @@
 |---|---|---|
 | 판단 근거 | 뉴스 텍스트 + 주가 흐름 | 뉴스 + 주가 + 공시 + 과거 시그널 + 거시지표 |
 | AI 방식 | 단순 프롬프트 | RAG (검색 증강 생성) |
-| 데이터 저장 | PostgreSQL (관계형) | PostgreSQL + PGVector (벡터 확장) |
+| 데이터 저장 | H2 → PostgreSQL | PostgreSQL + PGVector (벡터 확장) |
 | 시그널 근거 | AI 즉흥 판단 | 유사 과거 케이스 기반 판단 |
+| 주가 데이터 (KOR) | Yahoo Finance RSS | 한국투자증권 KIS API |
+| 주가 데이터 (USA) | Yahoo Finance RSS | Yahoo Finance (재무제표) + Alpha Vantage (기술지표) |
 
 ---
 
-## Phase 5 — 도메인 지식 강화 (프롬프트 고도화)
+## Phase 5 — 도메인 지식 강화 + 데이터 소스 고도화
 
-### 목표
-뉴스만으로 판단하던 AI에게 **섹터 특성, 거시경제 맥락**을 주입해 시그널 품질을 높인다.
+### 5-1. 주가 데이터 소스 교체
 
-### System Prompt 구조 고도화
+현재 비공식 RSS에 의존하는 구조를 공식 API로 전환한다.
+
+| 시장 | 현재 | 교체 대상 | 이유 |
+|---|---|---|---|
+| KOR | Yahoo Finance RSS (비공식) | **한국투자증권 KIS API** | 공식 지원, 실시간 호가·체결·잔고 조회 가능 |
+| USA 재무제표 | Yahoo Finance RSS (비공식) | **Yahoo Finance API (공식)** | 공시된 재무 데이터 (PER, PBR, EPS 등) |
+| USA 기술지표 | 없음 | **Alpha Vantage API** | RSI·MACD·이동평균 등 기술적 분석 지표 제공 |
+
+```yaml
+# application.yml 추가 예정
+kis:
+  api-key: ${KIS_API_KEY}
+  base-url: https://openapi.koreainvestment.com:9443
+
+alpha-vantage:
+  api-key: ${ALPHA_VANTAGE_API_KEY}
+  base-url: https://www.alphavantage.co/query
+```
+
+**크롤러 전략 패턴 확장** (OCP 준수 — 기존 코드 변경 없이 구현체 추가):
+```java
+// 기존
+NaverFinanceCrawler  // KOR 뉴스
+YahooFinanceCrawler  // USA 뉴스 (RSS)
+
+// 추가
+KisStockPriceFetcher      // KOR 주가 (KIS API)
+AlphaVantageTechIndicator // USA 기술지표 (Alpha Vantage)
+```
+
+### 5-2. 시스템 프롬프트 고도화
 
 ```
 너는 15년 경력의 주식 애널리스트이자 주린이 튜터다.
@@ -35,6 +69,7 @@
   - 소비재: 경기 방어주, 내수 중심
   - 금융: 금리 민감, 대출 규제 영향
   - 바이오: 임상 결과 이벤트 드리븐
+- 기술적 지표: RSI(과매수/과매도), MACD(추세 전환) ← Phase 5에서 추가
 
 [출력 규칙]
 - signal_type: 반드시 [BUY] [HOLD] [SELL] 중 하나 명시
@@ -45,27 +80,27 @@
 - 종목: {ticker} / {name} / {sector}
 - 뉴스: {crawledNews}
 - 주가 흐름 (1개월): {priceData}
-- 보유 수익률: {profitRate} (보유 종목인 경우만)
-- 참고 컨텍스트: {ragContext}  ← Phase 5에서 추가
+- 기술지표: {technicalIndicators}  ← Phase 5에서 추가
+- 보유 수익률: {profitRate}        ← 보유 종목인 경우만
+- 참고 컨텍스트: {ragContext}      ← Phase 6에서 추가
 ```
 
-### 데이터 소스 (무료)
+### 5-3. 추가 데이터 소스 (무료)
 
-| 목적 | 소스 | URL |
-|---|---|---|
-| 섹터/업종 분류 | KRX 종목 정보 | http://data.krx.co.kr |
-| 금리/환율/거시지표 | 한국은행 ECOS API | https://ecos.bok.or.kr |
-| 기업 공시 원문 | DART 전자공시 API | https://opendart.fss.or.kr |
+| 목적 | 소스 |
+|---|---|
+| 섹터/업종 분류 | KRX 종목 정보 (http://data.krx.co.kr) |
+| 금리/환율/거시지표 | 한국은행 ECOS API (https://ecos.bok.or.kr) |
+| 기업 공시 원문 | DART 전자공시 API (https://opendart.fss.or.kr) |
 
 ---
 
 ## Phase 6 — 벡터 DB 도입 (PGVector + RAG)
 
 ### 목표
-과거 뉴스, 공시, 시그널 결과를 벡터로 저장하고, 현재 상황과 **유사한 과거 케이스를 검색**해 시그널 근거를 강화한다.
+과거 뉴스·공시·시그널 결과를 벡터로 저장하고, 현재 상황과 **유사한 과거 케이스를 검색**해 시그널 근거를 강화한다.
 
-### 기술 선택: PGVector
-
+### 기술: PGVector
 Spring AI 공식 지원. 기존 PostgreSQL에 확장만 추가하면 되므로 별도 벡터 DB 불필요.
 
 ```yaml
@@ -124,9 +159,8 @@ String ragContext = results.stream()
 | 데이터 | 소스 | 활용 방식 |
 |---|---|---|
 | 크롤링 뉴스 원문 | 네이버 금융 / Yahoo Finance | 유사 뉴스 케이스 검색 |
-| DART 공시 (사업보고서 청크) | DART API | 기업 재무/사업 맥락 주입 |
+| DART 공시 청크 | DART API | 기업 재무/사업 맥락 주입 |
 | 과거 시그널 + 실제 주가 결과 | 자체 DB | "이 시그널이 맞았나" 근거 |
-| 금융 용어 사전 | 직접 구축 | 용어 해설 자동 삽입 |
 
 ---
 
@@ -162,7 +196,7 @@ String ragContext = results.stream()
 
 ---
 
-## 활용 시나리오 요약
+## 활용 시나리오
 
 ### ① RAG 기반 공시 검색
 ```
@@ -178,21 +212,3 @@ String ragContext = results.stream()
 → 벡터 검색: "3개월 전 동일 뉴스 → 매도 신호 → 실제 -12%"
 → 과거 결과를 근거로 시그널 신뢰도 강화
 ```
-
-### ③ 금융 용어 자동 해설
-```
-AI 응답에 "PBR", "어닝 서프라이즈" 등장
-→ 용어 사전 벡터에서 유사 용어 검색
-→ 응답 하단에 용어 해설 자동 추가
-```
-
----
-
-## 진입 조건
-
-> **Phase 1~4 (뉴스 기반 시그널)가 안정적으로 동작한 이후 진행한다.**
-
-- [ ] 온디맨드 시그널 정상 동작
-- [ ] 모닝 브리핑 배치 안정화
-- [ ] 시그널 히스토리 1개월 이상 누적
-- [ ] 위 조건 충족 시 Phase 5 착수

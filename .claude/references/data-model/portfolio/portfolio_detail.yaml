@@ -1,0 +1,51 @@
+# PortfolioDetail Entity
+# Last Updated: 2026-05-11
+
+entity: PORTFOLIO_DETAIL
+description: 보유 종목의 매수 정보 (수량, 평균 매수가)
+table: portfolio_detail
+domain: Portfolio
+
+columns:
+  - id:
+      type: BIGINT
+      nullable: false
+      pk: true
+      description: PK (Auto-Increment)
+  - stock_id:
+      type: BIGINT
+      nullable: false
+      fk: stock.stock_id
+      description: 종목 FK
+  - quantity:
+      type: INT
+      nullable: false
+      description: 보유 수량
+  - avg_price:
+      type: DECIMAL(10,2)
+      nullable: false
+      description: 평균 매수가 (수익률 계산용)
+  - created_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 등록 일시 — BaseEntity 상속
+  - updated_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 최종 수정 일시 — BaseEntity 상속
+  - deleted:
+      type: BOOLEAN
+      nullable: false
+      default: false
+      description: 소프트 삭제 여부 — BaseEntity 상속
+  - deleted_at:
+      type: TIMESTAMP
+      nullable: true
+      description: 소프트 삭제 일시 — BaseEntity 상속
+
+relationships:
+  - Stock: ManyToOne(Lazy) — stock_id FK
+
+business_logic:
+  - "create(stock, quantity, avgPrice): 보유 종목 등록 (정적 팩토리 메서드)"
+  - "calculateProfitRate(currentPrice): (currentPrice - avgPrice) / avgPrice * 100"
