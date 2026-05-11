@@ -1,0 +1,46 @@
+project:
+  name: jurine
+  type: spring-boot-java
+  domain: ai-stock-signal
+  target: stock-investors (주린이)
+
+stack:
+  java: 21
+  spring_boot: 3.4+
+  jdk: 21
+  db: h2 (dev) / postgresql (prod)
+  ai: Spring AI (OpenAI-compatible) + Groq (Llama 3)
+  crawler: Jsoup (KOR), RSS (USA)
+  realtime: SSE (Server-Sent Events)
+  notification: Telegram Bot
+  scheduler: Spring @Scheduled
+  test: JUnit 5 (unit tests)
+
+constraints:
+  - NO field injection (@Autowired) -> Use @RequiredArgsConstructor on ALL @Service, @RestController classes
+  - Entity MUST have @Getter, @NoArgsConstructor(access = PROTECTED), @AllArgsConstructor(access = PRIVATE) -> NO @Setter (state changes via static factory method or domain methods only)
+  - NO Logic in Controller -> Delegate to UseCase
+  - NO Anemic Model -> Put logic in Entity (Tell Don't Ask)
+  - NO Alpha/Beta versions -> latest Stable only
+  - Domain Service Isolation -> Service depends ONLY on Repository (No Service-to-Service calls)
+  - UseCase MUST NOT depend on Repository directly -> Always go through Domain Service
+  - UseCase Transaction -> @Transactional(readOnly = true) on class, @Transactional on write methods
+  - Performance -> Prefer `saveAll()` over loop `save()`. Avoid N+1 queries.
+  - MUST READ `references/conventions/coding-style.yaml` before implementing API Response or Exception Handling.
+  - AI/Groq -> Groq API timeout 30s, 실패 시 1회 재시도 후 실패 메시지 반환
+  - SSE -> SseEmitter로 스트리밍, 분석 완료 후 DB 저장
+  - signal_type -> 반드시 BUY | HOLD | SELL 중 하나로 파싱하여 DB 저장
+  - Crawler -> 크롤링 실패 시 Fallback 예외 처리 필수, raw_news_text 반드시 저장
+  - Disclaimer -> 모든 시그널 응답 마지막에 면책 문구 필수
+  - NO Hard Delete -> Use softDelete() method (BaseEntity 제공). DELETE API는 반드시 softDelete() 호출. 실제 DB row는 삭제하지 않음
+
+coding_style:
+  - Prefer final fields (immutability)
+  - Records or POJOs for DTOs
+  - Explicit null handling (Objects.requireNonNull, Optional, or @NonNull)
+  - Response DTO: Use static factory method `from(entity)` (No direct instantiation)
+
+commands:
+  build: ./gradlew build
+  test: ./gradlew test
+  run: ./gradlew bootRun

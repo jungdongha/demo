@@ -1,0 +1,133 @@
+# Coding Style Guide
+# Last Updated: 2026-05-11
+
+meta:
+  title: Coding Style Guide
+  type: Convention
+  scope: Project-wide coding standards
+
+java_style:
+  general:
+    - rule: Prefer final fields
+      description: Immutability first — declare fields final where possible
+    - rule: No field injection
+      description: Use constructor injection only
+    - rule: Explicit null handling
+      description: Use @NonNull/@Nullable annotations, Optional where appropriate
+    - rule: Records for DTOs
+      description: Use Java records for simple immutable DTOs; POJOs with final fields otherwise
+    - rule: Static factory methods
+      description: Use static `from(entity)` instead of direct constructor calls for Response DTOs
+
+  naming:
+    classes: PascalCase (e.g., StockAnalysisUseCase)
+    methods: camelCase (e.g., analyzeStock)
+    variables: camelCase
+    constants: UPPER_SNAKE_CASE (e.g., MAX_NEWS_COUNT)
+    packages: lowercase (no underscores)
+
+architecture:
+  package_structure:
+    pattern: Domain-Driven Design
+    format: com.obigo.demodong.domain.{domain_name}.{layer}.*
+    layers:
+      domain/entity: Entity classes
+      domain/repository: Repository interfaces
+      domain/service: Domain services (complex logic only)
+      application/usecase: "{Domain}UseCase.java — Single Facade (e.g., StockAnalysisUseCase.java)"
+      application/dto/request: Request DTOs
+      application/dto/response: Response DTOs
+      application/exception: Domain-specific ErrorCode enums
+      application/scheduler: Domain-specific schedulers
+      presentation: Controllers
+      presentation/response: ResponseCode enums
+    example:
+      - com.obigo.demodong.domain.signal.domain.entity.SignalReport
+      - com.obigo.demodong.domain.signal.domain.repository.SignalReportRepository
+      - com.obigo.demodong.domain.signal.application.usecase.StockAnalysisUseCase
+      - com.obigo.demodong.domain.signal.application.dto.response.SignalHistoryResponse
+      - com.obigo.demodong.domain.signal.application.exception.SignalErrorCode
+      - com.obigo.demodong.domain.signal.presentation.SignalController
+      - com.obigo.demodong.domain.signal.presentation.SignalResponseCode
+    global: com.obigo.demodong.global.* for common components
+
+  dependency_injection:
+    do: "@RequiredArgsConstructor (Lombok) — MUST use on all @Service, @RestController classes"
+    dont: Field Injection (@Autowired), manual constructor injection
+
+spring_boot:
+  transaction:
+    usecase:
+      class_level: "@Transactional(readOnly = true) — MUST apply to all UseCase classes"
+      write_method: "@Transactional — override on individual write methods (create/update/delete)"
+    service:
+      note: "Domain Service does NOT manage transactions — transaction boundary is UseCase only"
+
+  controller:
+    annotation: "@RestController"
+    response: CommonResponse<T> wrapper
+    dto: Record or POJO for all Request/Response
+    sse: "SseEmitter for /api/stock/analyze/{ticker} streaming endpoint"
+
+  response_handling:
+    success:
+      method: CommonResponse.success(ResponseCodeInterface, data)
+      enum: Define in {Domain}ResponseCode Enum (implement ResponseCodeInterface)
+      code_value: MUST use standard HTTP Status Codes (200, 201)
+      forbidden: NEVER use domain-specific error code ranges for success codes
+    error:
+      method: throw ApplicationException(ErrorCodeInterface)
+      enum: Define in ErrorCode Enum
+    interface: All codes MUST implement ResponseCodeInterface or ErrorCodeInterface
+
+  enum:
+    response_code: "@Getter + @AllArgsConstructor — MUST apply to all ResponseCode enums"
+    error_code: "@Getter + @AllArgsConstructor — MUST apply to all ErrorCode enums"
+    example: |
+      @Getter
+      @AllArgsConstructor
+      public enum SignalResponseCode implements ResponseCodeInterface {
+          SIGNAL_ANALYZED(200, HttpStatus.OK, "시그널 분석이 완료되었습니다.");
+          private final int code;
+          private final HttpStatus status;
+          private final String message;
+      }
+
+  entity:
+    base: All entities MUST extend BaseEntity (createdAt, updatedAt)
+    id_strategy: Auto-Increment Long (@GeneratedValue(strategy = GenerationType.IDENTITY))
+    lombok:
+      required: "@Getter — MUST apply to all Entity classes"
+      required2: "@NoArgsConstructor(access = AccessLevel.PROTECTED) — MUST apply to all Entity classes"
+      required3: "@AllArgsConstructor(access = AccessLevel.PRIVATE) — MUST apply to all Entity classes"
+      forbidden: "@Setter — MUST NOT use (state changes via static factory method or domain methods only)"
+      note: "UseCase/Service/Controller use @RequiredArgsConstructor for DI"
+    constraints: Use JPA relationship annotations with FK constraints
+
+error_handling:
+  global:
+    annotation: "@RestControllerAdvice"
+    response: CommonResponse with 5-digit status codes
+  code_ranges:
+    success: 2xxxx
+    client_error: 4xxxx
+    server_error: 5xxxx
+
+testing:
+  framework:
+    runner: JUnit 5
+    style: unit tests with mocks
+    mocking: Mockito
+  practices:
+    unit: "@ExtendWith(MockitoExtension.class)"
+    assertions: AssertJ (assertThat)
+
+best_practices:
+  - rule: Immutability first
+    description: Prefer final fields and unmodifiable collections (List.of, Map.of)
+  - rule: Static factory methods
+    description: Use static from() for DTO conversion to keep constructors clean
+  - rule: Fail fast
+    description: Validate inputs early using Jakarta Validation or preconditions
+  - rule: Single responsibility
+    description: Keep methods short and focused on one task

@@ -1,0 +1,62 @@
+# Stock Entity
+# Last Updated: 2026-05-11
+
+entity: STOCK
+description: 분석 대상 종목 정보 (보유/관심 종목 포함)
+table: stock
+domain: Stock
+
+columns:
+  - stock_id:
+      type: BIGINT
+      nullable: false
+      pk: true
+      description: PK (Auto-Increment)
+  - ticker:
+      type: VARCHAR(20)
+      nullable: false
+      unique: true
+      description: 종목 코드 (e.g., 005930, AAPL)
+  - name:
+      type: VARCHAR(100)
+      nullable: false
+      description: 종목명 (e.g., 삼성전자, Apple Inc.)
+  - market_type:
+      type: ENUM('KOR', 'USA')
+      nullable: false
+      description: 시장 구분 (KOR=한국, USA=미국)
+  - is_watchlist:
+      type: BOOLEAN
+      nullable: false
+      default: false
+      description: 관심 종목 여부 (true=관심, false=보유)
+  - created_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 생성 일시 — BaseEntity 상속
+  - updated_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 최종 수정 일시 — BaseEntity 상속
+  - deleted:
+      type: BOOLEAN
+      nullable: false
+      default: false
+      description: 소프트 삭제 여부 — BaseEntity 상속
+  - deleted_at:
+      type: TIMESTAMP
+      nullable: true
+      description: 소프트 삭제 일시 — BaseEntity 상속
+
+relationships:
+  - SignalReport: OneToMany (stock_id FK)
+  - PortfolioDetail: OneToOne (stock_id FK, 보유 종목인 경우)
+  - PriceSnapshot: OneToMany (stock_id FK)
+
+business_logic:
+  - "create(ticker, name, marketType, isWatchlist): 종목 등록 (정적 팩토리 메서드)"
+  - "isKorean(): market_type == KOR"
+  - "isAmerican(): market_type == USA"
+
+enums:
+  MarketType: KOR | USA

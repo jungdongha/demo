@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "Stop": [
+      {
+        "command": "{ git diff --name-only --diff-filter=ACM HEAD 2>/dev/null; git ls-files --others --exclude-standard 2>/dev/null; } | grep '\\.java$' | tr '\\n' '\\0' | xargs -0 -r '/Applications/IntelliJ IDEA.app/Contents/bin/idea' format 2>/dev/null || true",
+        "description": "Apply Naver code convention to modified/added Java files on conversation end"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "tool == 'Edit' && (file.endsWith('.ts') || file.endsWith('.tsx') || file.endsWith('.js') || file.endsWith('.jsx'))",
+        "command": "command -v prettier >/dev/null && prettier --write {file} >/dev/null 2>&1 || true",
+        "description": "Silent Prettier Auto-format"
+      }
+    ]
+  }
+}

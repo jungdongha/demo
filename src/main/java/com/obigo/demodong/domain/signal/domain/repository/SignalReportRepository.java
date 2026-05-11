@@ -11,4 +11,7 @@ import java.util.List;
 public interface SignalReportRepository extends JpaRepository<SignalReport, Long> {
     List<SignalReport> findByStockOrderByCreatedAtDesc(Stock stock);
     List<SignalReport> findBySourceTypeAndCreatedAtAfter(SourceType sourceType, LocalDateTime after);
+    List<SignalReport> findBySourceTypeAndCreatedAtBetweenOrderByCreatedAtDesc(
+            SourceType sourceType, LocalDateTime from, LocalDateTime to);
+    List<SignalReport> findByStock_IdOrderByCreatedAtDesc(Long stockId);
 }

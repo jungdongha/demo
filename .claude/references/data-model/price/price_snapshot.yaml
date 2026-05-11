@@ -1,0 +1,55 @@
+# PriceSnapshot Entity
+# Last Updated: 2026-05-11
+
+entity: PRICE_SNAPSHOT
+description: 종목별 일별 종가 스냅샷 (AI 분석용 주가 흐름 데이터)
+table: price_snapshot
+domain: Price
+
+columns:
+  - id:
+      type: BIGINT
+      nullable: false
+      pk: true
+      description: PK (Auto-Increment)
+  - stock_id:
+      type: BIGINT
+      nullable: false
+      fk: stock.stock_id
+      description: 종목 FK
+  - close_price:
+      type: DECIMAL(10,2)
+      nullable: false
+      description: 해당 일 종가
+  - recorded_date:
+      type: DATE
+      nullable: false
+      description: 기록 날짜
+  - created_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 생성 일시 — BaseEntity 상속
+  - updated_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 최종 수정 일시 — BaseEntity 상속
+  - deleted:
+      type: BOOLEAN
+      nullable: false
+      default: false
+      description: 소프트 삭제 여부 — BaseEntity 상속
+  - deleted_at:
+      type: TIMESTAMP
+      nullable: true
+      description: 소프트 삭제 일시 — BaseEntity 상속
+
+relationships:
+  - Stock: ManyToOne(Lazy) — stock_id FK
+
+business_logic:
+  - "create(stock, closePrice, recordedDate): 주가 스냅샷 저장 (정적 팩토리 메서드)"
+  - "데이터 범위: 최근 1개월 (AI 분석 입력)"
+
+data_source:
+  KOR: Yahoo Finance API (yahoo-finance2 또는 RSS)
+  USA: Yahoo Finance RSS (https://finance.yahoo.com/rss/headline?s={ticker})

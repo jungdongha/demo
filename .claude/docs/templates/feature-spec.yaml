@@ -1,0 +1,67 @@
+# Feature Specification Template
+# Status: Draft | In Progress | Done
+# Last Updated: YYYY-MM-DD
+
+meta:
+  id: FEAT-{Number}
+  title: {Feature Name}
+  type: Feature
+  author: {User/Agent}
+
+overview:
+  summary: >
+    {One-line summary: What is this feature for?}
+  user_story: >
+    As a {Role}, I want to {Action}, so that {Benefit}.
+  goals:
+    - {Goal 1}
+    - {Goal 2}
+
+technical_spec:
+  api:
+    - method: {GET | POST | PUT | DELETE}
+      path: /api/v1/{resource}
+      summary: {API Description}
+      auth: {Required Role}
+      request:
+        dto: {RequestDtoName}
+        fields:
+          - name: {fieldName}
+            type: {Type}
+            required: true
+            validation: {Constraints}
+      response:
+        dto: {ResponseDtoName}
+        wrapper: ApiResponse<{Dto}>
+
+  data_flow:
+    - step: 1
+      layer: Presentation
+      action: Validate request & Convert to DTO
+    - step: 2
+      layer: UseCase
+      action: {Business Logic Summary}
+      transaction: true
+    - step: 3
+      layer: Domain
+      action: {Entity Method Call / Domain Logic}
+    - step: 4
+      layer: Infrastructure
+      action: {Repository Save / External API Call}
+
+  database:
+    entities:
+      - name: {EntityName}
+        action: {Create | Read | Update | Delete}
+        fields: {Major Changed Fields}
+
+  validation_rules:
+    - {Rule 1: e.g., "Name cannot be duplicate"}
+    - {Rule 2: e.g., "Cannot order if stock is 0"}
+
+testing_strategy:
+  happy_path:
+    - {Scenario 1: Normal Case}
+  edge_cases:
+    - {Scenario 2: Exception Case}
+    - {Scenario 3: Boundary Test}

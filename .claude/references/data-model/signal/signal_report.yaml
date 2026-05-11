@@ -1,0 +1,80 @@
+# SignalReport Entity
+# Last Updated: 2026-05-11
+
+entity: SIGNAL_REPORT
+description: AI가 생성한 시그널 분석 결과
+table: signal_report
+domain: Signal
+
+columns:
+  - report_id:
+      type: BIGINT
+      nullable: false
+      pk: true
+      description: PK (Auto-Increment)
+  - stock_id:
+      type: BIGINT
+      nullable: false
+      fk: stock.stock_id
+      description: 종목 FK
+  - signal_type:
+      type: ENUM('BUY', 'HOLD', 'SELL')
+      nullable: false
+      description: AI 판단 시그널 (반드시 3가지 중 하나로 파싱)
+  - reason:
+      type: TEXT
+      nullable: true
+      description: AI 판단 근거 요약 (3줄 이내)
+  - content:
+      type: TEXT
+      nullable: false
+      description: AI 응답 전문 (마크다운 형식)
+  - raw_news_text:
+      type: TEXT
+      nullable: true
+      description: 크롤링 원문 보존 (프롬프트 개선 시 재분석 용도)
+  - source_type:
+      type: ENUM('SCHEDULED', 'ON_DEMAND')
+      nullable: false
+      description: 분석 트리거 유형 (배치/온디맨드)
+  - created_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 분석 생성 일시 — BaseEntity 상속
+  - updated_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 최종 수정 일시 — BaseEntity 상속
+  - deleted:
+      type: BOOLEAN
+      nullable: false
+      default: false
+      description: 소프트 삭제 여부 — BaseEntity 상속
+  - deleted_at:
+      type: TIMESTAMP
+      nullable: true
+      description: 소프트 삭제 일시 — BaseEntity 상속
+
+relationships:
+  - Stock: ManyToOne(Lazy) — stock_id FK
+
+business_logic:
+  - "create(stock, signalType, reason, content, rawNewsText, sourceType): 시그널 저장 (정적 팩토리 메서드)"
+  - "isToday(): created_at.toLocalDate().equals(LocalDate.now())"
+
+enums:
+  SignalType: BUY | HOLD | SELL
+  SourceType: SCHEDULED | ON_DEMAND
+
+signal_output_format: |
+  ## {종목명} ({ticker}) — {날짜} {시간}
+
+  ### 🟢 매수 신호 | 🟡 관망 신호 | 🔴 매도 신호
+
+  **판단 근거**
+  - {근거 1}
+  - {근거 2}
+  - {근거 3}
+
+  ---
+  ⚠️ 본 시그널은 AI 참고 정보입니다. 투자 판단과 책임은 전적으로 사용자에게 있습니다.

@@ -1,0 +1,83 @@
+architecture:
+  intent: "Prioritize Maintainability & Testability. Clear separation of concerns."
+  pattern: Layered DDD
+  flow: Controller -> UseCase(Tx) -> Domain(Entity/Service) -> Repository
+  flow(external/infra): Controller -> UseCase -> Domain(Interface) <- [Implements] - Infrastructure/External
+  patterns:
+    - Factory Method: Use static `create()` method in Entity.
+    - Rich Model: Encapsulate business logic in Entity methods.
+    - Strategy: NewsCrawlerStrategy interface for OCP (KOR/USA crawlers)
+  layers:
+    presentation:
+      role: [ HTTP handling, @Valid, UseCase 1:1 mapping ]
+      forbidden: [ Business logic, Direct Repo access ]
+    usecase:
+      role: [ Transaction boundary, DTO conversion, Orchestration, SSE streaming ]
+      pattern: Single Facade per domain
+      naming: "{Domain}UseCase (e.g., StockAnalysisUseCase) — ONE class per domain, all operations inside"
+    domain:
+      role: [ Pure business logic, State changes, Define Interfaces (Port) ]
+      rule:
+        - Entity holds logic (Rich Model, Tell Don't Ask)
+        - Service only for complex orchestration
+        - Interfaces defined here, implemented in Infra/External (DIP)
+    external:
+      role: [ External APIs (Groq AI, Naver News API, Yahoo Finance RSS), Implement Domain Interfaces ]
+    infrastructure:
+      role: [ Systems we control (Telegram Bot, Schedulers), Implement Domain Interfaces ]
+  rules:
+    - UseCase: Single Facade per domain, DTO conversion here
+    - Entity: Contains business logic (Tell Don't Ask)
+    - DTO Conversion: MUST use Static Factory Method (static from())
+                        - Bad: return new ResponseDto(entity.getId(), entity.getName(), ...)
+                        - Good: return ResponseDto.from(entity)
+    - Signature: Pass WHOLE OBJECTS (Entity/DTO), not loose fields.
+  constraint:
+    - NO Layer Skipping: UseCase MUST NOT depend on Repository or Infrastructure directly.
+    - NO Horizontal Dependency: UseCase MUST NOT depend on other UseCases.
+    - NO Horizontal Dependency: Domain Service MUST NOT depend on other Domain Services.
+
+api:
+  intent: "Consistency & Predictability for clients. Standardized error handling."
+  base_url: /api
+  response_wrapper: CommonResponse<T> { code, message, data }
+  error_response: { code: Int, message: String }
+  methods: { GET: 200, POST: 201, PUT/PATCH: 200, DELETE: 204 }
+  naming:
+    url: kebab-case (e.g., /api/stock/analyze/{ticker})
+    dto: { Action }{ Resource }Request, {Resource}Response
+  endpoints:
+    signal:
+      - "GET /api/stock/analyze/{ticker}  # SSE 스트리밍 온디맨드 분석"
+      - "GET /api/reports/today           # 오늘 배치 시그널 목록"
+      - "GET /api/reports/{stockId}/history # 종목별 시그널 히스토리"
+    portfolio:
+      - "POST   /api/portfolio             # 보유 종목 등록"
+      - "GET    /api/portfolio             # 보유 종목 목록 + 수익률"
+      - "DELETE /api/portfolio/{id}        # 보유 종목 삭제"
+      - "POST   /api/watchlist             # 관심 종목 등록"
+      - "DELETE /api/watchlist/{id}        # 관심 종목 삭제"
+  error_codes:
+    global: 30001~30999 (Server), 40001~40099 (Client)
+    domains:
+      signal: 401xx
+      portfolio: 402xx
+      stock: 403xx
+
+entity:
+  intent: "Data Integrity & Encapsulation. Protect invariants within the Entity."
+  base:
+    BaseEntity (id: Auto-Increment Long, createdAt, updatedAt, deleted: Boolean=false, deletedAt: LocalDateTime)
+    softDelete(): "deleted=true, deletedAt=now() — 모든 삭제는 이 메서드 호출"
+  mapping:
+    - ManyToOne(Lazy)
+    - Use JPA relationships with FK constraints
+  column_rules:
+    - Enum: @Enumerated(EnumType.STRING) (ORDINAL Forbidden)
+    - Text: @Lob or columnDefinition="TEXT"
+    - String: Must specify length
+    - Boolean: default value required (e.g., deleted=false)
+  rules:
+    - Soft Delete required -> NEVER use deleteById(). Call entity.softDelete() then save()
+    - No equals/hashCode override
+    - No toDto() inside Entity

@@ -9,7 +9,8 @@ import org.springframework.http.HttpStatus;
 @AllArgsConstructor
 public enum SignalResponseCode implements ResponseCode {
 
-    STOCK_ANALYSIS_SUCCESS(200, HttpStatus.OK, "주식 분석이 완료되었습니다.");
+    STOCK_ANALYSIS_SUCCESS(200, HttpStatus.OK, "주식 분석이 완료되었습니다."),
+    REPORT_LIST_SUCCESS(200, HttpStatus.OK, "시그널 목록을 조회했습니다.");
 
     private final int code;
     private final HttpStatus httpStatus;

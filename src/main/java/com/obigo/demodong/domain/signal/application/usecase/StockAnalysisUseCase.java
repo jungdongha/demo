@@ -1,6 +1,9 @@
 package com.obigo.demodong.domain.signal.application.usecase;
 
 import com.obigo.demodong.domain.ai.infrastructure.service.AiChatService;
+import com.obigo.demodong.domain.portfolio.domain.repository.PortfolioDetailRepository;
+import com.obigo.demodong.domain.price.domain.entity.PriceSnapshot;
+import com.obigo.demodong.domain.price.infrastructure.StockPriceFetcher;
 import com.obigo.demodong.domain.signal.application.dto.response.StockAnalysisResponse;
 import com.obigo.demodong.domain.signal.domain.entity.SignalReport;
 import com.obigo.demodong.domain.signal.domain.enums.SignalType;
@@ -20,6 +23,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import reactor.core.publisher.Flux;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
 
@@ -32,6 +37,8 @@ public class StockAnalysisUseCase {
     private final AiChatService aiChatService;
     private final StockRepository stockRepository;
     private final SignalReportRepository signalReportRepository;
+    private final StockPriceFetcher stockPriceFetcher;
+    private final PortfolioDetailRepository portfolioDetailRepository;
 
     @Value("classpath:prompts/stock-analysis-system.st")
     private Resource systemPromptResource;
@@ -44,15 +51,21 @@ public class StockAnalysisUseCase {
         MarketType marketType = detectMarketType(query);
         log.info("주식 분석 시작 - query: {}, marketType: {}", query, marketType);
 
+        Stock stock = findOrCreateStock(query, marketType);
         String rawNews = findCrawler(marketType).crawl(query);
+        String priceData = fetchPriceData(stock);
+        String portfolioContext = buildPortfolioContext(stock);
+
         String systemPrompt = new PromptTemplate(systemPromptResource).render();
         String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
                 "company", query,
-                "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews
+                "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews,
+                "priceData", priceData,
+                "portfolioContext", portfolioContext
         ));
 
         String analysis = aiChatService.getChatResponse(systemPrompt, userPrompt);
-        SignalType signalType = saveReport(query, marketType, rawNews, analysis);
+        SignalType signalType = saveReport(stock, rawNews, analysis);
         log.info("주식 분석 완료 - query: {}, signal: {}", query, signalType);
         return new StockAnalysisResponse(query, marketType, signalType, analysis);
     }
@@ -61,11 +74,17 @@ public class StockAnalysisUseCase {
         MarketType marketType = detectMarketType(query);
         log.info("주식 분석(SSE) 시작 - query: {}, marketType: {}", query, marketType);
 
+        Stock stock = findOrCreateStock(query, marketType);
         String rawNews = findCrawler(marketType).crawl(query);
+        String priceData = fetchPriceData(stock);
+        String portfolioContext = buildPortfolioContext(stock);
+
         String systemPrompt = new PromptTemplate(systemPromptResource).render();
         String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
                 "company", query,
-                "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews
+                "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews,
+                "priceData", priceData,
+                "portfolioContext", portfolioContext
         ));
 
         StringBuilder fullContent = new StringBuilder();
@@ -78,7 +97,7 @@ public class StockAnalysisUseCase {
                         .build())
                 .concatWith(Flux.defer(() -> {
                     String analysis = fullContent.toString();
-                    SignalType signalType = saveReport(query, marketType, rawNews, analysis);
+                    SignalType signalType = saveReport(stock, rawNews, analysis);
                     log.info("주식 분석(SSE) 완료 - query: {}, signal: {}", query, signalType);
                     return Flux.just(ServerSentEvent.<String>builder()
                             .event("done")
@@ -95,20 +114,9 @@ public class StockAnalysisUseCase {
     }
 
     @Transactional
-    public SignalType saveReport(String query, MarketType marketType, String rawNews, String analysis) {
+    public SignalType saveReport(Stock stock, String rawNews, String analysis) {
         SignalType signalType = parseSignalType(analysis);
         String reason = parseReason(analysis);
-
-        Stock stock = stockRepository.findByTicker(query)
-                .orElseGet(() -> stockRepository.save(
-                        Stock.builder()
-                                .ticker(query)
-                                .name(query)
-                                .marketType(marketType)
-                                .isWatchlist(false)
-                                .build()
-                ));
-
         signalReportRepository.save(
                 SignalReport.builder()
                         .stock(stock)
@@ -119,8 +127,45 @@ public class StockAnalysisUseCase {
                         .sourceType(SourceType.ON_DEMAND)
                         .build()
         );
-
         return signalType;
+    }
+
+    private Stock findOrCreateStock(String query, MarketType marketType) {
+        return stockRepository.findByTicker(query)
+                .orElseGet(() -> stockRepository.save(
+                        Stock.builder()
+                                .ticker(query).name(query)
+                                .marketType(marketType).isWatchlist(false)
+                                .build()
+                ));
+    }
+
+    private String fetchPriceData(Stock stock) {
+        if (stock.getMarketType() != MarketType.USA) return "주가 데이터 없음";
+        try {
+            List<PriceSnapshot> snapshots = stockPriceFetcher.fetchMonthlyPrices(stock);
+            return stockPriceFetcher.formatPriceHistory(snapshots);
+        } catch (Exception e) {
+            log.warn("주가 데이터 조회 실패 - ticker: {}", stock.getTicker());
+            return "주가 데이터 조회 실패";
+        }
+    }
+
+    private String buildPortfolioContext(Stock stock) {
+        return portfolioDetailRepository
+                .findByStock_TickerAndDeletedFalse(stock.getTicker())
+                .map(detail -> {
+                    BigDecimal currentPrice = stockPriceFetcher.fetchCurrentPrice(stock);
+                    if (currentPrice == null) return "";
+                    BigDecimal profitRate = currentPrice.subtract(detail.getAvgPrice())
+                            .divide(detail.getAvgPrice(), 4, RoundingMode.HALF_UP)
+                            .multiply(BigDecimal.valueOf(100))
+                            .setScale(2, RoundingMode.HALF_UP);
+                    return "[보유 현황]\n평균매수가: " + detail.getAvgPrice()
+                            + " / 현재가: " + currentPrice
+                            + " / 수익률: " + profitRate + "%";
+                })
+                .orElse("");
     }
 
     private NewsCrawlerStrategy findCrawler(MarketType marketType) {
