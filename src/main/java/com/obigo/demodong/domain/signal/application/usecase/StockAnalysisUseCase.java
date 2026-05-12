@@ -9,6 +9,8 @@ import com.obigo.demodong.domain.signal.application.dto.response.StockAnalysisRe
 import com.obigo.demodong.domain.signal.domain.entity.SignalReport;
 import com.obigo.demodong.domain.signal.domain.enums.SignalType;
 import com.obigo.demodong.domain.signal.domain.enums.SourceType;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import com.obigo.demodong.domain.signal.domain.service.SignalReportReader;
 import com.obigo.demodong.domain.signal.domain.service.SignalReportWriter;
 import com.obigo.demodong.domain.stock.domain.entity.Stock;
@@ -134,10 +136,9 @@ public class StockAnalysisUseCase {
                 .toList();
     }
 
-    public List<SignalHistoryResponse> getHistoryByStockId(Long stockId) {
-        return signalReportReader.findByStockId(stockId).stream()
-                .map(SignalHistoryResponse::from)
-                .toList();
+    public Page<SignalHistoryResponse> getHistoryByTicker(String ticker, Pageable pageable) {
+        return signalReportReader.findByTicker(ticker, pageable)
+                .map(SignalHistoryResponse::from);
     }
 
     @Transactional

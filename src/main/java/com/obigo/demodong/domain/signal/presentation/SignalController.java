@@ -5,6 +5,9 @@ import com.obigo.demodong.domain.signal.application.dto.response.StockAnalysisRe
 import com.obigo.demodong.domain.signal.application.usecase.StockAnalysisUseCase;
 import com.obigo.demodong.global.common.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.MediaType;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,8 +40,10 @@ public class SignalController {
         return ApiResponse.ok(SignalResponseCode.REPORT_LIST_SUCCESS, stockAnalysisUseCase.getTodayReports());
     }
 
-    @GetMapping("/reports/{stockId}/history")
-    public ApiResponse<List<SignalHistoryResponse>> getHistory(@PathVariable Long stockId) {
-        return ApiResponse.ok(SignalResponseCode.REPORT_LIST_SUCCESS, stockAnalysisUseCase.getHistoryByStockId(stockId));
+    @GetMapping("/reports/{ticker}/history")
+    public ApiResponse<Page<SignalHistoryResponse>> getHistory(
+            @PathVariable String ticker,
+            @PageableDefault(size = 20) Pageable pageable) {
+        return ApiResponse.ok(SignalResponseCode.REPORT_LIST_SUCCESS, stockAnalysisUseCase.getHistoryByTicker(ticker, pageable));
     }
 }
