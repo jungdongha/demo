@@ -6,6 +6,7 @@ import com.obigo.demodong.domain.stock.domain.entity.Stock;
 import com.obigo.demodong.global.common.entity.BaseEntity;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.experimental.SuperBuilder;
@@ -15,6 +16,7 @@ import lombok.experimental.SuperBuilder;
 @Getter
 @SuperBuilder
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 public class SignalReport extends BaseEntity {
 
     @ManyToOne(fetch = FetchType.LAZY)

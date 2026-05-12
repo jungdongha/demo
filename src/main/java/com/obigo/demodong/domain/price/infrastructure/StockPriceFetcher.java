@@ -3,6 +3,7 @@ package com.obigo.demodong.domain.price.infrastructure;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.obigo.demodong.domain.price.domain.entity.PriceSnapshot;
+import com.obigo.demodong.domain.price.domain.port.StockPricePort;
 import com.obigo.demodong.domain.price.domain.repository.PriceSnapshotRepository;
 import com.obigo.demodong.domain.stock.domain.entity.Stock;
 import lombok.RequiredArgsConstructor;
@@ -21,7 +22,7 @@ import java.util.stream.Collectors;
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class StockPriceFetcher {
+public class StockPriceFetcher implements StockPricePort {
 
     private final PriceSnapshotRepository priceSnapshotRepository;
     private final ObjectMapper objectMapper;

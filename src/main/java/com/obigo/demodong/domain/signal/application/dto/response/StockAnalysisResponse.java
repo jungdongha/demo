@@ -8,4 +8,8 @@ public record StockAnalysisResponse(
         MarketType marketType,
         SignalType signalType,
         String analysis
-) {}
+) {
+    public static StockAnalysisResponse of(String company, MarketType marketType, SignalType signalType, String analysis) {
+        return new StockAnalysisResponse(company, marketType, signalType, analysis);
+    }
+}
