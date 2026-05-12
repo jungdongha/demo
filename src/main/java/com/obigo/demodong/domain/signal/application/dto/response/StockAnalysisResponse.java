@@ -7,9 +7,10 @@ public record StockAnalysisResponse(
         String company,
         MarketType marketType,
         SignalType signalType,
-        String analysis
+        String analysis,
+        String reason
 ) {
-    public static StockAnalysisResponse of(String company, MarketType marketType, SignalType signalType, String analysis) {
-        return new StockAnalysisResponse(company, marketType, signalType, analysis);
+    public static StockAnalysisResponse of(String company, MarketType marketType, SignalType signalType, String analysis, String reason) {
+        return new StockAnalysisResponse(company, marketType, signalType, analysis, reason);
     }
 }

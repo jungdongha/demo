@@ -2,11 +2,12 @@ architecture:
   intent: "Prioritize Maintainability & Testability. Clear separation of concerns."
   pattern: Layered DDD
   flow: Controller -> UseCase(Tx) -> Domain(Entity/Service) -> Repository
-  flow(external/infra): Controller -> UseCase -> Domain(Interface) <- [Implements] - Infrastructure/External
+  flow(external/infra): Controller -> UseCase -> Domain(Interface/Port) <- [Implements] - External/Infrastructure
   patterns:
     - Factory Method: Use static `create()` method in Entity.
     - Rich Model: Encapsulate business logic in Entity methods.
-    - Strategy: NewsCrawlerStrategy interface for OCP (KOR/USA crawlers)
+    - Strategy: NewsPort interface for OCP (KOR/USA crawlers)
+    - Provider: StockPricePort / CorporateDisclosurePort — KIS & DART 구현체는 external 레이어에만 위치
   layers:
     presentation:
       role: [ HTTP handling, @Valid, UseCase 1:1 mapping ]
@@ -16,15 +17,40 @@ architecture:
       pattern: Single Facade per domain
       naming: "{Domain}UseCase (e.g., StockAnalysisUseCase) — ONE class per domain, all operations inside"
     domain:
-      role: [ Pure business logic, State changes, Define Interfaces (Port) ]
+      role: [ Pure business logic, State changes, Define Port Interfaces (DIP) ]
       rule:
         - Entity holds logic (Rich Model, Tell Don't Ask)
         - Service only for complex orchestration
-        - Interfaces defined here, implemented in Infra/External (DIP)
+        - Interfaces (Ports) defined here, implemented in External/Infra
     external:
-      role: [ External APIs (Groq AI, Naver News API, Yahoo Finance RSS), Implement Domain Interfaces ]
+      role: >
+        외부 API 연동 — KIS API, DART API, Groq AI, Naver News API, Yahoo Finance RSS.
+        모든 구현체는 domain 레이어의 Port 인터페이스를 implement한다.
+      providers:
+        stock_price:
+          port: StockPricePort
+          implementations:
+            - KisKorStockPriceProvider   # 국내 주가 (KIS /uapi/domestic-stock)
+            - KisUsaStockPriceProvider   # 해외 주가 (KIS /uapi/overseas-price)
+          note: >
+            KIS OAuth2 토큰(/oauth2/tokenP)은 KisTokenManager가 발급·캐싱.
+            실전/모의 환경 전환은 application.yml kis.base-url로만 분리.
+        disclosure:
+          port: CorporateDisclosurePort
+          implementations:
+            - DartDisclosureProvider     # 전자공시 (DART /list.json, /fnlttSinglAcnt.json)
+          note: "DART corp_code는 ticker와 매핑하여 캐싱 (stock 테이블 dart_corp_code 컬럼 추가)"
+        news:
+          port: NewsPort
+          implementations:
+            - NaverFinanceCrawler        # KOR 뉴스 (Naver News API)
+            - YahooFinanceCrawler        # USA 뉴스 (Yahoo Finance RSS)
+        ai:
+          port: AiAnalysisPort
+          implementations:
+            - GroqAiProvider             # Groq API (llama-3.1-8b-instant)
     infrastructure:
-      role: [ Systems we control (Telegram Bot, Schedulers), Implement Domain Interfaces ]
+      role: [ Systems we control — Telegram Bot, Schedulers. Implement Domain Interfaces ]
   rules:
     - UseCase: Single Facade per domain, DTO conversion here
     - Entity: Contains business logic (Tell Don't Ask)
@@ -37,6 +63,40 @@ architecture:
     - NO Horizontal Dependency: UseCase MUST NOT depend on other UseCases.
     - NO Horizontal Dependency: Domain Service MUST NOT depend on other Domain Services.
 
+# KIS API 연동 설계 상세
+kis_integration:
+  auth:
+    type: OAuth2 (App-Key / App-Secret 방식)
+    token_endpoint: /oauth2/tokenP
+    token_ttl: 24h
+    strategy: >
+      KisTokenManager @Component — 발급 토큰을 in-memory 캐싱.
+      만료 1시간 전 자동 재발급 (@Scheduled).
+  endpoints:
+    kor_current_price:   /uapi/domestic-stock/v1/quotations/inquire-price
+    kor_daily_price:     /uapi/domestic-stock/v1/quotations/inquire-daily-price
+    usa_current_price:   /uapi/overseas-price/v1/quotations/price
+    usa_daily_price:     /uapi/overseas-price/v1/quotations/dailyprice
+    market_index:        /uapi/domestic-stock/v1/quotations/inquire-index-price  # 벤치마크용
+  error_handling:
+    - HTTP 429: Rate limit → exponential backoff (최대 3회 재시도)
+    - HTTP 500: KIS 장애 → Fallback 빈 PriceSnapshot 반환 후 분석 계속
+    - 모의투자(VTS) 환경에서 통합 테스트 수행
+
+# DART API 연동 설계 상세
+dart_integration:
+  auth: API Key (쿼리 파라미터 crtfc_key)
+  corp_code_mapping: >
+    DART corp_code ↔ ticker 매핑은 stock 테이블의 dart_corp_code 컬럼에 저장.
+    최초 등록 시 DART /corpCode.xml 파싱하여 자동 매핑.
+  endpoints:
+    disclosure_list:     /list.json          # 최근 수시공시 목록
+    financial_statement: /fnlttSinglAcnt.json # 재무제표 (사업보고서)
+    major_report:        /list.json?pblntf_detail_ty=C  # 주요사항 보고
+  schedule: "매일 08:30 배치에서 관심 종목 공시 사전 수집"
+  error_handling:
+    - 공시 조회 실패 시 disclosureData = "공시 정보 없음" 으로 프롬프트 삽입
+
 api:
   intent: "Consistency & Predictability for clients. Standardized error handling."
   base_url: /api
@@ -48,21 +108,24 @@ api:
     dto: { Action }{ Resource }Request, {Resource}Response
   endpoints:
     signal:
-      - "GET /api/stock/analyze/{ticker}  # SSE 스트리밍 온디맨드 분석"
-      - "GET /api/reports/today           # 오늘 배치 시그널 목록"
-      - "GET /api/reports/{stockId}/history # 종목별 시그널 히스토리"
+      - "GET /api/stock/analyze/{ticker}           # SSE 스트리밍 온디맨드 분석"
+      - "GET /api/reports/today                    # 오늘 배치 시그널 목록"
+      - "GET /api/reports/{stockId}/history        # 종목별 시그널 히스토리"
     portfolio:
-      - "POST   /api/portfolio             # 보유 종목 등록"
-      - "GET    /api/portfolio             # 보유 종목 목록 + 수익률"
-      - "DELETE /api/portfolio/{id}        # 보유 종목 삭제"
-      - "POST   /api/watchlist             # 관심 종목 등록"
-      - "DELETE /api/watchlist/{id}        # 관심 종목 삭제"
+      - "POST   /api/portfolio                     # 보유 종목 등록"
+      - "GET    /api/portfolio                     # 보유 종목 목록 + 수익률"
+      - "DELETE /api/portfolio/{id}                # 보유 종목 삭제"
+    watchlist:
+      - "POST   /api/watchlist                     # 관심 종목 등록 (ticker)"
+      - "GET    /api/watchlist                     # 관심 종목 목록"
+      - "DELETE /api/watchlist/{id}                # 관심 종목 삭제"
   error_codes:
     global: 30001~30999 (Server), 40001~40099 (Client)
     domains:
       signal: 401xx
       portfolio: 402xx
       stock: 403xx
+      watchlist: 404xx
 
 entity:
   intent: "Data Integrity & Encapsulation. Protect invariants within the Entity."

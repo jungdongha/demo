@@ -53,8 +53,17 @@ public class StockAnalysisUseCase {
 
     @Transactional
     public StockAnalysisResponse execute(String query) {
+        return doAnalysis(query, SourceType.ON_DEMAND);
+    }
+
+    @Transactional
+    public StockAnalysisResponse executeScheduled(String ticker) {
+        return doAnalysis(ticker, SourceType.SCHEDULED);
+    }
+
+    private StockAnalysisResponse doAnalysis(String query, SourceType sourceType) {
         MarketType marketType = detectMarketType(query);
-        log.info("주식 분석 시작 - query: {}, marketType: {}", query, marketType);
+        log.info("주식 분석 시작 - query: {}, marketType: {}, sourceType: {}", query, marketType, sourceType);
 
         Stock stock = findOrCreateStock(query, marketType);
         String rawNews = findCrawler(marketType).crawl(query);
@@ -70,9 +79,10 @@ public class StockAnalysisUseCase {
         ));
 
         String analysis = aiChatService.getChatResponse(systemPrompt, userPrompt);
-        SignalType signalType = saveReport(stock, rawNews, analysis);
+        String reason = parseReason(analysis);
+        SignalType signalType = saveReport(stock, rawNews, analysis, sourceType);
         log.info("주식 분석 완료 - query: {}, signal: {}", query, signalType);
-        return StockAnalysisResponse.of(query, marketType, signalType, analysis);
+        return StockAnalysisResponse.of(query, marketType, signalType, analysis, reason);
     }
 
     public Flux<ServerSentEvent<String>> executeStream(String query) {
@@ -102,7 +112,7 @@ public class StockAnalysisUseCase {
                         .build())
                 .concatWith(Flux.defer(() -> {
                     String analysis = fullContent.toString();
-                    SignalType signalType = saveReport(stock, rawNews, analysis);
+                    SignalType signalType = saveReport(stock, rawNews, analysis, SourceType.ON_DEMAND);
                     log.info("주식 분석(SSE) 완료 - query: {}, signal: {}", query, signalType);
                     return Flux.just(ServerSentEvent.<String>builder()
                             .event("done")
@@ -131,7 +141,7 @@ public class StockAnalysisUseCase {
     }
 
     @Transactional
-    public SignalType saveReport(Stock stock, String rawNews, String analysis) {
+    public SignalType saveReport(Stock stock, String rawNews, String analysis, SourceType sourceType) {
         SignalType signalType = parseSignalType(analysis);
         String reason = parseReason(analysis);
         signalReportWriter.save(
@@ -141,7 +151,7 @@ public class StockAnalysisUseCase {
                         .reason(reason)
                         .content(analysis)
                         .rawNewsText(rawNews)
-                        .sourceType(SourceType.ON_DEMAND)
+                        .sourceType(sourceType)
                         .build()
         );
         return signalType;
