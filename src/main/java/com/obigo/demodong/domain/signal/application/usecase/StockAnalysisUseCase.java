@@ -1,18 +1,20 @@
 package com.obigo.demodong.domain.signal.application.usecase;
 
 import com.obigo.demodong.domain.ai.infrastructure.service.AiChatService;
-import com.obigo.demodong.domain.portfolio.domain.repository.PortfolioDetailRepository;
+import com.obigo.demodong.domain.portfolio.domain.service.PortfolioReader;
+import com.obigo.demodong.domain.price.domain.port.StockPricePort;
 import com.obigo.demodong.domain.price.domain.entity.PriceSnapshot;
-import com.obigo.demodong.domain.price.infrastructure.StockPriceFetcher;
+import com.obigo.demodong.domain.signal.application.dto.response.SignalHistoryResponse;
 import com.obigo.demodong.domain.signal.application.dto.response.StockAnalysisResponse;
 import com.obigo.demodong.domain.signal.domain.entity.SignalReport;
 import com.obigo.demodong.domain.signal.domain.enums.SignalType;
 import com.obigo.demodong.domain.signal.domain.enums.SourceType;
-import com.obigo.demodong.domain.signal.domain.repository.SignalReportRepository;
-import com.obigo.demodong.domain.signal.infrastructure.crawler.NewsCrawlerStrategy;
+import com.obigo.demodong.domain.signal.domain.service.SignalReportReader;
+import com.obigo.demodong.domain.signal.domain.service.SignalReportWriter;
 import com.obigo.demodong.domain.stock.domain.entity.Stock;
 import com.obigo.demodong.domain.stock.domain.enums.MarketType;
-import com.obigo.demodong.domain.stock.domain.repository.StockRepository;
+import com.obigo.demodong.domain.stock.domain.service.StockReader;
+import com.obigo.demodong.domain.stock.domain.service.StockWriter;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.prompt.PromptTemplate;
@@ -31,14 +33,17 @@ import java.util.Map;
 @Slf4j
 @Service
 @RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class StockAnalysisUseCase {
 
-    private final List<NewsCrawlerStrategy> crawlers;
+    private final List<com.obigo.demodong.domain.signal.infrastructure.crawler.NewsCrawlerStrategy> crawlers;
     private final AiChatService aiChatService;
-    private final StockRepository stockRepository;
-    private final SignalReportRepository signalReportRepository;
-    private final StockPriceFetcher stockPriceFetcher;
-    private final PortfolioDetailRepository portfolioDetailRepository;
+    private final StockReader stockReader;
+    private final StockWriter stockWriter;
+    private final SignalReportWriter signalReportWriter;
+    private final SignalReportReader signalReportReader;
+    private final StockPricePort stockPricePort;
+    private final PortfolioReader portfolioReader;
 
     @Value("classpath:prompts/stock-analysis-system.st")
     private Resource systemPromptResource;
@@ -67,7 +72,7 @@ public class StockAnalysisUseCase {
         String analysis = aiChatService.getChatResponse(systemPrompt, userPrompt);
         SignalType signalType = saveReport(stock, rawNews, analysis);
         log.info("주식 분석 완료 - query: {}, signal: {}", query, signalType);
-        return new StockAnalysisResponse(query, marketType, signalType, analysis);
+        return StockAnalysisResponse.of(query, marketType, signalType, analysis);
     }
 
     public Flux<ServerSentEvent<String>> executeStream(String query) {
@@ -113,11 +118,23 @@ public class StockAnalysisUseCase {
                 });
     }
 
+    public List<SignalHistoryResponse> getTodayReports() {
+        return signalReportReader.findTodayScheduled().stream()
+                .map(SignalHistoryResponse::from)
+                .toList();
+    }
+
+    public List<SignalHistoryResponse> getHistoryByStockId(Long stockId) {
+        return signalReportReader.findByStockId(stockId).stream()
+                .map(SignalHistoryResponse::from)
+                .toList();
+    }
+
     @Transactional
     public SignalType saveReport(Stock stock, String rawNews, String analysis) {
         SignalType signalType = parseSignalType(analysis);
         String reason = parseReason(analysis);
-        signalReportRepository.save(
+        signalReportWriter.save(
                 SignalReport.builder()
                         .stock(stock)
                         .signalType(signalType)
@@ -131,8 +148,8 @@ public class StockAnalysisUseCase {
     }
 
     private Stock findOrCreateStock(String query, MarketType marketType) {
-        return stockRepository.findByTicker(query)
-                .orElseGet(() -> stockRepository.save(
+        return stockReader.findByTicker(query)
+                .orElseGet(() -> stockWriter.save(
                         Stock.builder()
                                 .ticker(query).name(query)
                                 .marketType(marketType).isWatchlist(false)
@@ -143,8 +160,8 @@ public class StockAnalysisUseCase {
     private String fetchPriceData(Stock stock) {
         if (stock.getMarketType() != MarketType.USA) return "주가 데이터 없음";
         try {
-            List<PriceSnapshot> snapshots = stockPriceFetcher.fetchMonthlyPrices(stock);
-            return stockPriceFetcher.formatPriceHistory(snapshots);
+            List<PriceSnapshot> snapshots = stockPricePort.fetchMonthlyPrices(stock);
+            return stockPricePort.formatPriceHistory(snapshots);
         } catch (Exception e) {
             log.warn("주가 데이터 조회 실패 - ticker: {}", stock.getTicker());
             return "주가 데이터 조회 실패";
@@ -152,10 +169,9 @@ public class StockAnalysisUseCase {
     }
 
     private String buildPortfolioContext(Stock stock) {
-        return portfolioDetailRepository
-                .findByStock_TickerAndDeletedFalse(stock.getTicker())
+        return portfolioReader.findByStockTicker(stock.getTicker())
                 .map(detail -> {
-                    BigDecimal currentPrice = stockPriceFetcher.fetchCurrentPrice(stock);
+                    BigDecimal currentPrice = stockPricePort.fetchCurrentPrice(stock);
                     if (currentPrice == null) return "";
                     BigDecimal profitRate = currentPrice.subtract(detail.getAvgPrice())
                             .divide(detail.getAvgPrice(), 4, RoundingMode.HALF_UP)
@@ -168,7 +184,7 @@ public class StockAnalysisUseCase {
                 .orElse("");
     }
 
-    private NewsCrawlerStrategy findCrawler(MarketType marketType) {
+    private com.obigo.demodong.domain.signal.infrastructure.crawler.NewsCrawlerStrategy findCrawler(MarketType marketType) {
         return crawlers.stream()
                 .filter(c -> c.getMarketType() == marketType)
                 .findFirst()

@@ -1,5 +1,5 @@
 # Jurine — Agent Memory
-# Last Updated: 2026-05-11
+# Last Updated: 2026-05-12
 
 ## 현재 상태
 
@@ -18,6 +18,19 @@ base_package: com.obigo.demodong
 | telegram | domain/telegram | 구현 중 (봇 알림) |
 
 ## 주요 변경 이력
+
+- 2026-05-12: 아키텍처 규칙 위반 전수 수정 (branch: fix/essential-rules)
+  - [신규] StockReader, StockWriter (domain/stock/domain/service/)
+  - [신규] SignalReportReader, SignalReportWriter (domain/signal/domain/service/)
+  - [신규] StockPricePort 인터페이스 (domain/price/domain/port/) — DIP 적용
+  - [신규] StockErrorCode (domain/stock/application/exception/, 403xx)
+  - [수정] SignalController: SignalReportRepository 직접 의존 제거
+  - [수정] StockAnalysisUseCase: Repository 3개 직접 의존 → 도메인 서비스로 교체, @Transactional(readOnly=true) on class 추가, getTodayReports()/getHistoryByStockId() 이관
+  - [수정] PortFolioUseCase: StockRepository → StockReader/StockWriter, StockPriceFetcher → StockPricePort
+  - [수정] BriefingScheduler: StockRepository/PortfolioDetailRepository → StockReader/PortfolioReader
+  - [수정] Stock, SignalReport, PortfolioDetail: @AllArgsConstructor(PRIVATE) 추가
+  - [수정] Stock.ticker(length=20), Stock.name(length=100) 지정
+  - [수정] StockAnalysisResponse: static factory of() 추가
 
 - 2026-05-11: .claude 에이전트 컨텍스트 전면 정비 완료
   - 타 프로젝트(bangjjack/Dawa-BE) 설정 → Jurine 전용으로 교체

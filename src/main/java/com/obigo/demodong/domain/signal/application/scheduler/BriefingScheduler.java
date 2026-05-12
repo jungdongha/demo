@@ -1,12 +1,11 @@
 package com.obigo.demodong.domain.signal.application.scheduler;
 
-import com.obigo.demodong.domain.portfolio.domain.entity.PortfolioDetail;
-import com.obigo.demodong.domain.portfolio.domain.repository.PortfolioDetailRepository;
+import com.obigo.demodong.domain.portfolio.domain.service.PortfolioReader;
 import com.obigo.demodong.domain.signal.application.dto.response.StockAnalysisResponse;
 import com.obigo.demodong.domain.signal.application.usecase.StockAnalysisUseCase;
 import com.obigo.demodong.domain.stock.domain.entity.Stock;
 import com.obigo.demodong.domain.stock.domain.enums.MarketType;
-import com.obigo.demodong.domain.stock.domain.repository.StockRepository;
+import com.obigo.demodong.domain.stock.domain.service.StockReader;
 import com.obigo.demodong.domain.telegram.infrastructure.TelegramNotifier;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -21,8 +20,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class BriefingScheduler {
 
-    private final StockRepository stockRepository;
-    private final PortfolioDetailRepository portfolioDetailRepository;
+    private final StockReader stockReader;
+    private final PortfolioReader portfolioReader;
     private final StockAnalysisUseCase stockAnalysisUseCase;
     private final TelegramNotifier telegramNotifier;
 
@@ -45,11 +44,10 @@ public class BriefingScheduler {
     private List<Stock> collectAllTargets() {
         List<Stock> result = new ArrayList<>();
 
-        List<Stock> stocks = stockRepository.findAllByIsWatchlistTrue();
-        result.addAll(stocks);
+        result.addAll(stockReader.findAllByIsWatchlistTrue());
 
-        portfolioDetailRepository.findAllByDeletedFalse().stream()
-                .map(PortfolioDetail::getStock)
+        portfolioReader.findAll().stream()
+                .map(detail -> detail.getStock())
                 .filter(s -> result.stream().noneMatch(r -> r.getId().equals(s.getId())))
                 .forEach(result::add);
 
