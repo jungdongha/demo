@@ -2,7 +2,9 @@ name: demo-dong CI/CD
 
 on:
   push:
-    branches: [ "dev" ] # dev에 푸시될 때 작동하도록 변경
+    branches: [ "dev" ]
+  pull_request:
+    branches: [ "dev" ]
 
 jobs:
   build-and-deploy:
