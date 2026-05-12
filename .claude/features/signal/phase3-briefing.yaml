@@ -1,0 +1,87 @@
+# Feature Specification
+# Status: Draft
+# Last Updated: 2026-05-12
+
+meta:
+  id: FEAT-003
+  title: Phase 3 — 모닝 브리핑 배치 안정화 + 텔레그램 포맷 개선
+  type: Fix + Enhancement
+  domain: signal
+
+overview:
+  summary: >
+    배치 분석 결과가 SCHEDULED로 저장되지 않는 버그 수정,
+    텔레그램 브리핑 포맷을 3줄 요약 기반으로 개선.
+  goals:
+    - "[버그] BriefingScheduler → execute() 경로에서 SourceType.ON_DEMAND로 저장되는 문제 수정"
+    - "[개선] 텔레그램 브리핑 포맷 — 전체 AI 분석 → 3줄 요약(reason) 기반으로 변경"
+    - "[개선] 브리핑 헤더 포맷 개선 (날짜·요일·구분선 포함)"
+
+# ─── 문제 정의 ──────────────────────────────
+problems:
+  bug_source_type:
+    symptom: "getTodayReports() API가 배치 결과를 조회 못함 (SCHEDULED만 조회하는데 ON_DEMAND로 저장됨)"
+    root_cause: >
+      BriefingScheduler.runBriefing() → stockAnalysisUseCase.execute(ticker) → saveReport(..., ON_DEMAND) 하드코딩.
+      배치 분석임에도 항상 ON_DEMAND로 저장됨.
+    file: StockAnalysisUseCase.java:134 (saveReport 내 SourceType.ON_DEMAND 하드코딩)
+
+  format_issue:
+    symptom: "텔레그램 메시지에 전체 AI 분석 내용이 그대로 출력 (너무 길고 가독성 낮음)"
+    root_cause: >
+      BriefingScheduler.formatSignal()이 result.analysis() 전체를 사용.
+      파싱된 reason(3줄 요약)이 있음에도 활용하지 않음.
+      StockAnalysisResponse에 reason 필드 없어서 BriefingScheduler에서 접근 불가.
+    file: BriefingScheduler.java:79, StockAnalysisResponse.java
+
+# ─── 기술 스펙 ──────────────────────────────
+technical_spec:
+  changed_files:
+    - file: StockAnalysisResponse.java
+      change: reason 필드 추가, of() 팩토리 메서드 업데이트
+
+    - file: StockAnalysisUseCase.java
+      change: >
+        1. saveReport()에 SourceType 파라미터 추가
+        2. execute() → saveReport(..., ON_DEMAND) 유지
+        3. executeScheduled(String ticker) 신규 추가 → saveReport(..., SCHEDULED)
+           (배치 전용. execute()와 동일 흐름이나 sourceType만 다름)
+
+    - file: BriefingScheduler.java
+      change: >
+        1. execute() → executeScheduled() 호출로 교체
+        2. formatSignal() 개선 — reason 기반 ①②③ 번호 목록
+        3. 브리핑 헤더 포맷 개선 (날짜/요일/구분선)
+        4. 브리핑 꼬리말 면책 문구 추가
+
+  target_telegram_format: |
+    [Jurine 모닝 브리핑] 2026-05-12 (화) 08:50
+
+    ━━━━━━ 📊 관심 종목 시그널 ━━━━━━
+
+    🟢 *삼성전자* — BUY
+    ① 근거1
+    ② 근거2
+    ③ 근거3
+
+    🟡 *카카오* — HOLD
+    ① 근거1
+    ② 근거2
+
+    ─────────────────────────
+    ⚠️ 본 시그널은 AI 참고 정보입니다. 투자 판단과 책임은 전적으로 사용자에게 있습니다.
+
+  not_changing:
+    - "stock-analysis-system.st / stock-analysis-user.st — 이미 3줄 요약 규칙 반영됨"
+    - "parseReason() 로직 — 현재 시스템 프롬프트 형식과 일치"
+    - "TelegramNotifier — parse_mode=Markdown 유지"
+    - "미국장 나스닥/환율 요약 — Phase 5 KIS API 연동 후 추가"
+
+testing_strategy:
+  happy_path:
+    - "배치 실행 후 getTodayReports()에서 결과 조회 확인 (SCHEDULED 저장)"
+    - "reason 필드가 3줄 이하로 파싱되어 텔레그램 포맷에 정상 출력"
+  edge_cases:
+    - "reason이 비어있을 경우 포맷 fallback (analysis 앞 100자 표시)"
+    - "배치 종목 0개일 경우 메시지 미전송"
+    - "개별 종목 분석 실패 시 나머지 종목 계속 진행 (현행 유지)"

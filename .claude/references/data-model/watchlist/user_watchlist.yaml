@@ -1,11 +1,12 @@
-# PortfolioDetail Entity
+# UserWatchlist Entity
 # Last Updated: 2026-05-12
-# 기획 변경 (Phase 5): user_id FK 추가 — 보유 종목도 사용자 단위로 관리.
+# ⚠️ NOT IMPLEMENTING: 개인 프로젝트 — Stock.is_watchlist 플래그 방식 그대로 유지.
+# 설계 참고용으로만 보존. 실제 구현 대상 아님.
 
-entity: PORTFOLIO_DETAIL
-description: 사용자의 보유 종목 매수 정보 (수량, 평균 매수가). 수익률 계산에 활용.
-table: portfolio_detail
-domain: Portfolio
+entity: USER_WATCHLIST
+description: 사용자와 관심 종목의 연관 엔티티. 1명의 사용자가 무제한 종목 등록 가능.
+table: user_watchlist
+domain: Watchlist
 
 columns:
   - id:
@@ -17,20 +18,17 @@ columns:
       type: BIGINT
       nullable: false
       fk: users.user_id
-      description: 사용자 FK — 어느 사용자의 보유 종목인지 식별
+      description: 사용자 FK
   - stock_id:
       type: BIGINT
       nullable: false
       fk: stock.stock_id
       description: 종목 FK
-  - quantity:
+  - display_order:
       type: INT
       nullable: false
-      description: 보유 수량
-  - avg_price:
-      type: DECIMAL(12,2)
-      nullable: false
-      description: 평균 매수가 (수익률 계산용)
+      default: 0
+      description: 브리핑 알림 내 종목 표시 순서 (낮을수록 먼저 표시)
   - created_at:
       type: TIMESTAMP
       nullable: false
@@ -58,6 +56,10 @@ relationships:
   - Stock: ManyToOne(Lazy) — stock_id FK
 
 business_logic:
-  - "create(user, stock, quantity, avgPrice): 보유 종목 등록 (정적 팩토리 메서드)"
-  - "calculateProfitRate(currentPrice): (currentPrice - avgPrice) / avgPrice * 100"
-  - "updateHolding(quantity, avgPrice): 수량·평균가 수정 (추가 매수 등)"
+  - "create(user, stock, displayOrder): 관심 종목 등록 (정적 팩토리 메서드)"
+  - "remove(): softDelete() 호출 — 실제 row 삭제 금지"
+
+migration_note: >
+  Phase 5 전환 시 기존 Stock.is_watchlist=true 인 종목은
+  시스템 기본 사용자(telegram_chat_id='SYSTEM') 소유의 UserWatchlist로 일괄 이관.
+  이관 완료 후 Stock.is_watchlist 컬럼은 deprecated 처리 (삭제는 Phase 6).

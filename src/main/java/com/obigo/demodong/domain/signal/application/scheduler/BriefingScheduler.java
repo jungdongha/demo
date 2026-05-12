@@ -12,8 +12,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 @Slf4j
 @Component
@@ -29,7 +33,7 @@ public class BriefingScheduler {
     public void runKoreanMarketBriefing() {
         log.info("모닝브리핑 - 한국 장 전");
         List<Stock> targets = collectAllTargets();
-        runBriefing(targets, "한국 장 전 모닝 브리핑");
+        runBriefing(targets, "📊 관심 종목 시그널");
     }
 
     @Scheduled(cron = "0 20 22 * * MON-FRI", zone = "Asia/Seoul")
@@ -38,7 +42,7 @@ public class BriefingScheduler {
         List<Stock> targets = collectAllTargets().stream()
                 .filter(s -> s.getMarketType() == MarketType.USA)
                 .toList();
-        runBriefing(targets, "미국 장 전 모닝 브리핑");
+        runBriefing(targets, "📊 미국 관심 종목 시그널");
     }
 
     private List<Stock> collectAllTargets() {
@@ -54,17 +58,22 @@ public class BriefingScheduler {
         return result;
     }
 
-    private void runBriefing(List<Stock> targets, String header) {
+    private void runBriefing(List<Stock> targets, String sectionTitle) {
         if (targets.isEmpty()) {
             log.info("분석 대상 종목 없음 - 배치 종료");
             return;
         }
+
+        String dateStr = LocalDate.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd (E)", Locale.KOREAN));
+        String timeStr = LocalTime.now().format(DateTimeFormatter.ofPattern("HH:mm"));
+
         StringBuilder sb = new StringBuilder();
-        sb.append("*").append(header).append("*\n\n");
+        sb.append("[Jurine 모닝 브리핑] ").append(dateStr).append(" ").append(timeStr).append("\n\n");
+        sb.append("━━━━━━ ").append(sectionTitle).append(" ━━━━━━\n\n");
 
         for (Stock stock : targets) {
             try {
-                StockAnalysisResponse result = stockAnalysisUseCase.execute(stock.getTicker());
+                StockAnalysisResponse result = stockAnalysisUseCase.executeScheduled(stock.getTicker());
                 sb.append(formatSignal(result)).append("\n\n");
                 log.info("배치 분석 완료 - ticker: {}, signal: {}", stock.getTicker(), result.signalType());
             } catch (Exception e) {
@@ -72,6 +81,9 @@ public class BriefingScheduler {
                 sb.append("⚠️ ").append(stock.getTicker()).append(" 분석 실패\n\n");
             }
         }
+
+        sb.append("─────────────────────────\n");
+        sb.append("⚠️ 본 시그널은 AI 참고 정보입니다. 투자 판단과 책임은 전적으로 사용자에게 있습니다.");
 
         telegramNotifier.sendMessage(sb.toString());
     }
@@ -82,6 +94,27 @@ public class BriefingScheduler {
             case SELL -> "🔴";
             case HOLD -> "🟡";
         };
-        return emoji + " *" + result.company() + "* - " + result.signalType().name() + "\n" + result.analysis();
+        String reasonLines = buildNumberedReason(result.reason(), result.analysis());
+        return emoji + " <b>" + result.company() + "</b> — " + result.signalType().name() + "\n" + reasonLines;
+    }
+
+    private String buildNumberedReason(String reason, String analysis) {
+        String[] nums = {"①", "②", "③"};
+        String source = (reason != null && !reason.isBlank()) ? reason : analysis;
+        String[] lines = source.split("\n");
+
+        StringBuilder sb = new StringBuilder();
+        int count = 0;
+        for (String line : lines) {
+            String trimmed = line.replaceFirst("^-\\s*", "").trim();
+            if (!trimmed.isEmpty() && count < nums.length) {
+                sb.append(nums[count++]).append(" ").append(trimmed).append("\n");
+            }
+        }
+        if (sb.isEmpty()) {
+            String fallback = analysis.length() > 100 ? analysis.substring(0, 100) + "..." : analysis;
+            return fallback;
+        }
+        return sb.toString().trim();
     }
 }
