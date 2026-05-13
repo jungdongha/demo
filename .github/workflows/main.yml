@@ -2,7 +2,7 @@ name: demo-dong CI/CD
 
 on:
   push:
-    branches: [ "dev" ]
+    branches: [ "dev", "feat" ]
   pull_request:
     branches: [ "dev" ]
 
@@ -26,7 +26,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: build
-    if: github.event_name == 'push' && github.ref == 'refs/heads/dev'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/dev' || github.ref == 'refs/heads/feat')
     steps:
       - uses: actions/checkout@v4
 
