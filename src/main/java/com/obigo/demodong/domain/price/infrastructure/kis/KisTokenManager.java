@@ -24,11 +24,14 @@ public class KisTokenManager {
 
     @PostConstruct
     public void init() {
+        log.info("[KIS] baseUrl={}, appKey={}...", kisProperties.baseUrl(),
+                kisProperties.appKey() != null ? kisProperties.appKey().substring(0, Math.min(8, kisProperties.appKey().length())) : "NULL");
         refreshToken();
     }
 
     // 23시간마다 자동 갱신 (KIS 토큰 유효시간 24h)
-    @Scheduled(fixedDelay = 23 * 60 * 60 * 1000)
+    // initialDelay: @PostConstruct에서 이미 발급했으므로 첫 스케줄 실행은 23시간 뒤
+    @Scheduled(fixedDelay = 23 * 60 * 60 * 1000L, initialDelay = 23 * 60 * 60 * 1000L)
     public void refreshToken() {
         try {
             Map<String, String> body = Map.of(

@@ -8,10 +8,13 @@ import com.obigo.demodong.domain.portfolio.domain.entity.PortfolioDetail;
 import com.obigo.demodong.domain.portfolio.domain.service.PortFolioWriter;
 import com.obigo.demodong.domain.portfolio.domain.service.PortfolioReader;
 import com.obigo.demodong.domain.price.domain.port.StockPricePort;
+import com.obigo.demodong.domain.price.infrastructure.dart.DartCorpCodeMapper;
+import com.obigo.demodong.domain.stock.application.exception.StockErrorCode;
 import com.obigo.demodong.domain.stock.domain.entity.Stock;
 import com.obigo.demodong.domain.stock.domain.enums.MarketType;
 import com.obigo.demodong.domain.stock.domain.service.StockReader;
 import com.obigo.demodong.domain.stock.domain.service.StockWriter;
+import com.obigo.demodong.global.common.exception.ApplicationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,6 +34,7 @@ public class PortFolioUseCase {
     private final StockReader stockReader;
     private final StockWriter stockWriter;
     private final StockPricePort stockPricePort;
+    private final DartCorpCodeMapper dartCorpCodeMapper;
 
     // -- 보유 종목 --
 
@@ -92,18 +96,37 @@ public class PortFolioUseCase {
 
     // -- private --
 
-    private Stock findOrCreateStock(String ticker) {
+    private Stock findOrCreateStock(String input) {
+        String ticker = resolveTicker(input);
+        MarketType marketType = ticker.matches("\\d{6}") ? MarketType.KOR : MarketType.USA;
         return stockReader.findByTicker(ticker)
-                .orElseGet(() -> {
-                    MarketType marketType = ticker.chars()
-                            .anyMatch(c -> Character.UnicodeScript.of(c) == Character.UnicodeScript.HAN)
-                            ? MarketType.KOR : MarketType.USA;
-                    return stockWriter.save(
-                            Stock.builder()
-                                    .ticker(ticker).name(ticker)
-                                    .marketType(marketType).isWatchlist(false)
-                                    .build()
-                    );
-                });
+                .orElseGet(() -> stockWriter.save(
+                        Stock.builder()
+                                .ticker(ticker)
+                                .name(input)
+                                .marketType(marketType)
+                                .isWatchlist(false)
+                                .build()
+                ));
+    }
+
+    /**
+     * 입력값을 실제 티커 코드로 변환.
+     * - 6자리 숫자 → KOR 티커
+     * - 영문 → USA 티커 (대문자)
+     * - 한글 → DART 회사명 검색 → 미발견 시 STOCK_NOT_FOUND
+     */
+    private String resolveTicker(String input) {
+        String trimmed = input.trim();
+        if (trimmed.matches("\\d{6}")) return trimmed;
+        if (trimmed.matches("[A-Za-z.\\-]{1,10}")) return trimmed.toUpperCase();
+        if (trimmed.matches(".*[가-힣].*")) {
+            return dartCorpCodeMapper.resolveTickerByName(trimmed)
+                    .orElseThrow(() -> {
+                        log.warn("종목 검색 실패 - input: {}", trimmed);
+                        return new ApplicationException(StockErrorCode.STOCK_NOT_FOUND);
+                    });
+        }
+        throw new ApplicationException(StockErrorCode.STOCK_NOT_FOUND);
     }
 }

@@ -18,12 +18,15 @@ import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
 
 /**
  * DART corpCode.xml 파싱 → Stock 테이블의 dartCorpCode 자동 매핑.
  * 앱 시작 시 1회 실행, 이후 매주 월요일 08:30 갱신.
+ * corp_name → stock_code 맵도 유지하여 한글 회사명으로 티커 검색 지원.
  */
 @Slf4j
 @Component
@@ -34,6 +37,9 @@ public class DartCorpCodeMapper {
     private final DartProperties dartProperties;
     private final StockReader stockReader;
     private final StockWriter stockWriter;
+
+    /** 회사명 → 티커 코드 (한글 이름 검색용) */
+    private final Map<String, String> nameToTickerMap = new ConcurrentHashMap<>();
 
     @PostConstruct
     public void syncOnStartup() {
@@ -66,6 +72,24 @@ public class DartCorpCodeMapper {
         log.info("[DART] corp_code 매핑 완료 - {}건 업데이트", updated);
     }
 
+    /**
+     * 한글 회사명으로 티커 검색.
+     * 1순위: 완전 일치 / 2순위: 단일 부분 일치 / 복수 일치·미일치: empty
+     */
+    public Optional<String> resolveTickerByName(String name) {
+        String exact = nameToTickerMap.get(name);
+        if (exact != null) return Optional.of(exact);
+
+        List<String> matches = nameToTickerMap.entrySet().stream()
+                .filter(e -> e.getKey().contains(name))
+                .map(Map.Entry::getValue)
+                .distinct()
+                .toList();
+
+        if (matches.size() == 1) return Optional.of(matches.get(0));
+        return Optional.empty();
+    }
+
     private Map<String, String> loadCorpCodeMap() {
         try {
             byte[] zipBytes = dartWebClient.get()
@@ -91,6 +115,7 @@ public class DartCorpCodeMapper {
 
     private Map<String, String> parseCorpCodeZip(byte[] zipBytes) throws Exception {
         Map<String, String> result = new HashMap<>();
+        Map<String, String> newNameMap = new HashMap<>();
 
         try (ZipInputStream zis = new ZipInputStream(new ByteArrayInputStream(zipBytes))) {
             ZipEntry entry;
@@ -104,20 +129,25 @@ public class DartCorpCodeMapper {
                 NodeList list = doc.getElementsByTagName("list");
                 for (int i = 0; i < list.getLength(); i++) {
                     NodeList children = list.item(i).getChildNodes();
-                    String corpCode = null, stockCode = null;
+                    String corpCode = null, stockCode = null, corpName = null;
                     for (int j = 0; j < children.getLength(); j++) {
                         String tag = children.item(j).getNodeName();
                         String val = children.item(j).getTextContent().trim();
                         if ("corp_code".equals(tag))  corpCode  = val;
                         if ("stock_code".equals(tag)) stockCode = val;
+                        if ("corp_name".equals(tag))  corpName  = val;
                     }
                     if (corpCode != null && stockCode != null && !stockCode.isBlank()) {
                         result.put(stockCode, corpCode);
+                        if (corpName != null && !corpName.isBlank()) {
+                            newNameMap.put(corpName, stockCode);
+                        }
                     }
                 }
                 break;
             }
         }
+        nameToTickerMap.putAll(newNameMap);
         log.info("[DART] corpCode.xml 파싱 완료 - {}개 법인", result.size());
         return result;
     }
