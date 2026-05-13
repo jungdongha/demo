@@ -28,4 +28,8 @@ public class StockReader {
     public List<Stock> findAllByIsWatchlistTrue() {
         return stockRepository.findAllByIsWatchlistTrue();
     }
+
+    public List<Stock> findAll() {
+        return stockRepository.findAll();
+    }
 }

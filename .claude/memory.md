@@ -1,10 +1,10 @@
 # Jurine — Agent Memory
-# Last Updated: 2026-05-12
+# Last Updated: 2026-05-13
 
 ## 현재 상태
 
-phase: Phase 1~3 구현 중 / Phase 5 설계 완료
-branch: feat
+phase: Phase 5 구현 완료 / Phase 6 설계 대기
+branch: feature/phase5
 base_package: com.obigo.demodong
 
 ## 완료된 도메인
@@ -41,12 +41,14 @@ base_package: com.obigo.demodong
 ## 현재 환경
 
 ```yaml
-db: H2 in-memory (개발용) → PostgreSQL (Phase 5 전환 예정)
+db: PostgreSQL (prod) / H2 (dev)
 ai: Groq API (llama-3.1-8b-instant)
 port: 8090
 news_kr: Naver News API
 news_us: Yahoo Finance RSS
 notification: Telegram Bot
+stock_price: KIS API (KOR + USA)
+corporate_disclosure: DART API (KOR 종목 공시)
 ```
 
 ## 다음 작업 예정 (Phase 3 → Phase 5 순)
@@ -58,14 +60,16 @@ notification: Telegram Bot
 ### Phase 4
 - [x] 시그널 히스토리 조회 API 완성
 
-### Phase 5 구현 과제 (설계 완료, 구현 대기)
+### Phase 5 구현 과제 ✅ 완료 (2026-05-13)
 > **전제**: 개인 프로젝트 — User 엔티티, 다중 사용자, 개인화 기능 구현하지 않음. 단일 사용자 구조 유지.
-- [ ] Stock 테이블 — sector, dart_corp_code 컬럼 추가
-- [ ] KisTokenManager 구현 (OAuth2 토큰 발급·캐싱)
-- [ ] KisKorStockPriceProvider 구현 (StockPricePort)
-- [ ] KisUsaStockPriceProvider 구현 (StockPricePort)
-- [ ] DartDisclosureProvider 구현 (CorporateDisclosurePort) — DART corpCode 매핑 포함
-- [ ] AI 프롬프트 개선 — DART 공시 데이터 입력 추가, 3줄 요약 강제
+- [x] Stock 테이블 — sector, dart_corp_code 컬럼 추가
+- [x] KisTokenManager 구현 (OAuth2 토큰 발급·캐싱, AtomicReference, 23h 자동 갱신)
+- [x] KisKorStockPriceProvider 구현 (현재가 + 일별 시세, DB 캐싱)
+- [x] KisUsaStockPriceProvider 구현 (NAS→NYS→AMS 거래소 fallback)
+- [x] KisStockPriceRouter — @Primary, KOR/USA 라우팅
+- [x] DartDisclosureProvider 구현 (CorporateDisclosurePort)
+- [x] DartCorpCodeMapper — 앱 시작 시 corpCode.xml ZIP 파싱 + DB 자동 매핑
+- [x] AI 프롬프트 개선 — sector, disclosureData 변수 추가, 판단기준 4항목
 
 ## 참고
 
@@ -74,5 +78,7 @@ notification: Telegram Bot
 - 시그널 타입: 반드시 BUY | HOLD | SELL 파싱
 - SSE 엔드포인트: GET /api/stock/analyze/{ticker}
 - Soft Delete: BaseEntity.softDelete() 제공 — DELETE API에서 반드시 사용
-- KIS API: 실전/모의 환경 전환은 application.yml `kis.base-url`로만 분리
+- KIS API: 실전/모의 환경 전환은 application.yml `kis.base-url`로만 분리 (vts 포함 여부로 trId 자동 분기)
 - DART API: dart_corp_code는 Stock 테이블에 저장, KOR 종목만 해당
+- KisStockPriceRouter: @Primary StockPricePort — KOR/USA 라우팅. KisKorStockPriceProvider / KisUsaStockPriceProvider는 직접 StockPricePort 미구현 (Spring 빈 충돌 방지)
+- DartCorpCodeMapper: @PostConstruct + @Scheduled(cron="0 30 8 * * MON") 주 1회 갱신

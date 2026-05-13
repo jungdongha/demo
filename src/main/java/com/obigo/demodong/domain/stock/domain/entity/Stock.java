@@ -30,7 +30,19 @@ public class Stock extends BaseEntity {
     @Column(nullable = false)
     private boolean isWatchlist;
 
+    // Phase 5 — 섹터 (반도체, 소비재 등). nullable.
+    @Column(length = 50)
+    private String sector;
+
+    // Phase 5 — DART 법인코드 (KOR 종목만 해당). nullable.
+    @Column(length = 8)
+    private String dartCorpCode;
+
     public void updateWatchlist(boolean isWatchlist) {
         this.isWatchlist = isWatchlist;
+    }
+
+    public void updateDartCorpCode(String dartCorpCode) {
+        this.dartCorpCode = dartCorpCode;
     }
 }

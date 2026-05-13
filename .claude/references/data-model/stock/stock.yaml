@@ -1,5 +1,5 @@
 # Stock Entity
-# Last Updated: 2026-05-12
+# Last Updated: 2026-05-13
 # 기획 변경 (Phase 5): Stock은 순수 종목 마스터 테이블로 역할을 축소.
 #   - is_watchlist 플래그 deprecated (UserWatchlist 엔티티로 이관)
 #   - dart_corp_code 컬럼 추가 (DART API 연동용)
@@ -73,8 +73,9 @@ relationships:
   - PriceSnapshot: OneToMany (stock_id FK)
 
 business_logic:
-  - "create(ticker, name, marketType, sector): 종목 등록 (정적 팩토리 메서드)"
-  - "assignDartCorpCode(corpCode): DART 기업코드 매핑"
+  - "Stock.builder()...build(): 종목 등록 (@SuperBuilder 사용)"
+  - "updateDartCorpCode(dartCorpCode): DART 기업코드 매핑 (DartCorpCodeMapper가 호출)"
+  - "updateWatchlist(isWatchlist): 관심 종목 플래그 변경"
   - "isKorean(): market_type == KOR"
   - "isAmerican(): market_type == USA"
   - "hasDartCode(): dart_corp_code != null — 공시 조회 가능 여부"

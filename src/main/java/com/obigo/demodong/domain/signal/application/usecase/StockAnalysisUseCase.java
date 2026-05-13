@@ -2,6 +2,8 @@ package com.obigo.demodong.domain.signal.application.usecase;
 
 import com.obigo.demodong.domain.ai.infrastructure.service.AiChatService;
 import com.obigo.demodong.domain.portfolio.domain.service.PortfolioReader;
+import com.obigo.demodong.domain.price.domain.model.DisclosureItem;
+import com.obigo.demodong.domain.price.domain.port.CorporateDisclosurePort;
 import com.obigo.demodong.domain.price.domain.port.StockPricePort;
 import com.obigo.demodong.domain.price.domain.entity.PriceSnapshot;
 import com.obigo.demodong.domain.signal.application.dto.response.SignalHistoryResponse;
@@ -46,6 +48,7 @@ public class StockAnalysisUseCase {
     private final SignalReportReader signalReportReader;
     private final StockPricePort stockPricePort;
     private final PortfolioReader portfolioReader;
+    private final CorporateDisclosurePort corporateDisclosurePort;
 
     @Value("classpath:prompts/stock-analysis-system.st")
     private Resource systemPromptResource;
@@ -71,12 +74,15 @@ public class StockAnalysisUseCase {
         String rawNews = findCrawler(marketType).crawl(query);
         String priceData = fetchPriceData(stock);
         String portfolioContext = buildPortfolioContext(stock);
+        String disclosureData = fetchDisclosureData(stock);
 
         String systemPrompt = new PromptTemplate(systemPromptResource).render();
         String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
                 "company", query,
+                "sector", stock.getSector() != null ? stock.getSector() : "미분류",
                 "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews,
                 "priceData", priceData,
+                "disclosureData", disclosureData,
                 "portfolioContext", portfolioContext
         ));
 
@@ -95,12 +101,15 @@ public class StockAnalysisUseCase {
         String rawNews = findCrawler(marketType).crawl(query);
         String priceData = fetchPriceData(stock);
         String portfolioContext = buildPortfolioContext(stock);
+        String disclosureData = fetchDisclosureData(stock);
 
         String systemPrompt = new PromptTemplate(systemPromptResource).render();
         String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
                 "company", query,
+                "sector", stock.getSector() != null ? stock.getSector() : "미분류",
                 "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews,
                 "priceData", priceData,
+                "disclosureData", disclosureData,
                 "portfolioContext", portfolioContext
         ));
 
@@ -169,13 +178,23 @@ public class StockAnalysisUseCase {
     }
 
     private String fetchPriceData(Stock stock) {
-        if (stock.getMarketType() != MarketType.USA) return "주가 데이터 없음";
         try {
             List<PriceSnapshot> snapshots = stockPricePort.fetchMonthlyPrices(stock);
             return stockPricePort.formatPriceHistory(snapshots);
         } catch (Exception e) {
             log.warn("주가 데이터 조회 실패 - ticker: {}", stock.getTicker());
             return "주가 데이터 조회 실패";
+        }
+    }
+
+    private String fetchDisclosureData(Stock stock) {
+        if (stock.getMarketType() != MarketType.KOR) return "해외 종목 — 공시 데이터 미지원";
+        try {
+            List<DisclosureItem> items = corporateDisclosurePort.fetchRecentDisclosures(stock.getDartCorpCode(), 5);
+            return corporateDisclosurePort.format(items);
+        } catch (Exception e) {
+            log.warn("공시 데이터 조회 실패 - ticker: {}", stock.getTicker());
+            return "공시 정보 없음";
         }
     }
 
@@ -203,7 +222,7 @@ public class StockAnalysisUseCase {
     }
 
     private MarketType detectMarketType(String query) {
-        return query.matches(".*[가-힣].*") ? MarketType.KOR : MarketType.USA;
+        return query.matches(".*[가-힣].*") || query.matches("\\d{6}") ? MarketType.KOR : MarketType.USA;
     }
 
     private SignalType parseSignalType(String content) {
