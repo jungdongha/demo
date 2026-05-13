@@ -6,11 +6,14 @@ import com.obigo.demodong.domain.price.domain.model.DisclosureItem;
 import com.obigo.demodong.domain.price.domain.port.CorporateDisclosurePort;
 import com.obigo.demodong.domain.price.domain.port.StockPricePort;
 import com.obigo.demodong.domain.price.domain.entity.PriceSnapshot;
+import com.obigo.demodong.domain.price.infrastructure.dart.DartCorpCodeMapper;
 import com.obigo.demodong.domain.signal.application.dto.response.SignalHistoryResponse;
 import com.obigo.demodong.domain.signal.application.dto.response.StockAnalysisResponse;
 import com.obigo.demodong.domain.signal.domain.entity.SignalReport;
 import com.obigo.demodong.domain.signal.domain.enums.SignalType;
 import com.obigo.demodong.domain.signal.domain.enums.SourceType;
+import com.obigo.demodong.domain.stock.application.exception.StockErrorCode;
+import com.obigo.demodong.global.common.exception.ApplicationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import com.obigo.demodong.domain.signal.domain.service.SignalReportReader;
@@ -49,6 +52,7 @@ public class StockAnalysisUseCase {
     private final StockPricePort stockPricePort;
     private final PortfolioReader portfolioReader;
     private final CorporateDisclosurePort corporateDisclosurePort;
+    private final DartCorpCodeMapper dartCorpCodeMapper;
 
     @Value("classpath:prompts/stock-analysis-system.st")
     private Resource systemPromptResource;
@@ -67,10 +71,11 @@ public class StockAnalysisUseCase {
     }
 
     private StockAnalysisResponse doAnalysis(String query, SourceType sourceType) {
-        MarketType marketType = detectMarketType(query);
-        log.info("주식 분석 시작 - query: {}, marketType: {}, sourceType: {}", query, marketType, sourceType);
+        String ticker = resolveQuery(query);
+        MarketType marketType = detectMarketType(ticker);
+        log.info("주식 분석 시작 - query: {}, ticker: {}, marketType: {}, sourceType: {}", query, ticker, marketType, sourceType);
 
-        Stock stock = findOrCreateStock(query, marketType);
+        Stock stock = findOrCreateStock(ticker, query, marketType);
         String rawNews = findCrawler(marketType).crawl(query);
         String priceData = fetchPriceData(stock);
         String portfolioContext = buildPortfolioContext(stock);
@@ -78,7 +83,7 @@ public class StockAnalysisUseCase {
 
         String systemPrompt = new PromptTemplate(systemPromptResource).render();
         String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
-                "company", query,
+                "company", stock.getName(),
                 "sector", stock.getSector() != null ? stock.getSector() : "미분류",
                 "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews,
                 "priceData", priceData,
@@ -90,14 +95,16 @@ public class StockAnalysisUseCase {
         String reason = parseReason(analysis);
         SignalType signalType = saveReport(stock, rawNews, analysis, sourceType);
         log.info("주식 분석 완료 - query: {}, signal: {}", query, signalType);
-        return StockAnalysisResponse.of(query, marketType, signalType, analysis, reason);
+        return StockAnalysisResponse.of(stock.getName(), marketType, signalType, analysis, reason);
     }
 
+    @Transactional
     public Flux<ServerSentEvent<String>> executeStream(String query) {
-        MarketType marketType = detectMarketType(query);
-        log.info("주식 분석(SSE) 시작 - query: {}, marketType: {}", query, marketType);
+        String ticker = resolveQuery(query);
+        MarketType marketType = detectMarketType(ticker);
+        log.info("주식 분석(SSE) 시작 - query: {}, ticker: {}, marketType: {}", query, ticker, marketType);
 
-        Stock stock = findOrCreateStock(query, marketType);
+        Stock stock = findOrCreateStock(ticker, query, marketType);
         String rawNews = findCrawler(marketType).crawl(query);
         String priceData = fetchPriceData(stock);
         String portfolioContext = buildPortfolioContext(stock);
@@ -105,7 +112,7 @@ public class StockAnalysisUseCase {
 
         String systemPrompt = new PromptTemplate(systemPromptResource).render();
         String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
-                "company", query,
+                "company", stock.getName(),
                 "sector", stock.getSector() != null ? stock.getSector() : "미분류",
                 "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews,
                 "priceData", priceData,
@@ -167,12 +174,37 @@ public class StockAnalysisUseCase {
         return signalType;
     }
 
-    private Stock findOrCreateStock(String query, MarketType marketType) {
-        return stockReader.findByTicker(query)
+    /**
+     * 입력값을 실제 티커 코드로 변환.
+     * - 6자리 숫자 → KOR 티커 (그대로 반환)
+     * - 영문 1~10자 → USA 티커 (대문자 변환)
+     * - 한글 포함 → DART 회사명 검색 → 미발견 시 STOCK_NOT_FOUND
+     */
+    private String resolveQuery(String query) {
+        String trimmed = query.trim();
+        if (trimmed.matches("\\d{6}")) return trimmed;
+        if (trimmed.matches("[A-Za-z.\\-]{1,10}")) return trimmed.toUpperCase();
+        if (trimmed.matches(".*[가-힣].*")) {
+            return dartCorpCodeMapper.resolveTickerByName(trimmed)
+                    .orElseThrow(() -> {
+                        log.warn("종목 검색 실패 - query: {}", trimmed);
+                        return new ApplicationException(StockErrorCode.STOCK_NOT_FOUND);
+                    });
+        }
+        throw new ApplicationException(StockErrorCode.STOCK_NOT_FOUND);
+    }
+
+    /**
+     * 티커로 Stock 조회. 없으면 신규 생성 (displayName을 종목명으로 사용).
+     */
+    private Stock findOrCreateStock(String ticker, String displayName, MarketType marketType) {
+        return stockReader.findByTicker(ticker)
                 .orElseGet(() -> stockWriter.save(
                         Stock.builder()
-                                .ticker(query).name(query)
-                                .marketType(marketType).isWatchlist(false)
+                                .ticker(ticker)
+                                .name(displayName)
+                                .marketType(marketType)
+                                .isWatchlist(false)
                                 .build()
                 ));
     }
@@ -221,8 +253,8 @@ public class StockAnalysisUseCase {
                 .orElseThrow(() -> new IllegalStateException("지원하지 않는 마켓 타입: " + marketType));
     }
 
-    private MarketType detectMarketType(String query) {
-        return query.matches(".*[가-힣].*") || query.matches("\\d{6}") ? MarketType.KOR : MarketType.USA;
+    private MarketType detectMarketType(String ticker) {
+        return ticker.matches("\\d{6}") ? MarketType.KOR : MarketType.USA;
     }
 
     private SignalType parseSignalType(String content) {
