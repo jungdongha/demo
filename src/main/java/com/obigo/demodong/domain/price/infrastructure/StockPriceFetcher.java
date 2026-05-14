@@ -3,6 +3,7 @@ package com.obigo.demodong.domain.price.infrastructure;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.obigo.demodong.domain.price.domain.entity.PriceSnapshot;
+import com.obigo.demodong.domain.price.domain.port.StockPricePort;
 import com.obigo.demodong.domain.price.domain.repository.PriceSnapshotRepository;
 import com.obigo.demodong.domain.stock.domain.entity.Stock;
 import lombok.RequiredArgsConstructor;
@@ -16,12 +17,13 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Component
 @RequiredArgsConstructor
-public class StockPriceFetcher {
+public class StockPriceFetcher implements StockPricePort {
 
     private final PriceSnapshotRepository priceSnapshotRepository;
     private final ObjectMapper objectMapper;
@@ -79,6 +81,12 @@ public class StockPriceFetcher {
         return snapshots.stream()
                 .map(s -> s.getRecordedDate() + ": " + s.getClosePrice())
                 .collect(Collectors.joining(", "));
+    }
+
+    /** Yahoo Finance 기반 구현 — 52주 데이터 미지원 */
+    @Override
+    public Optional<BigDecimal[]> fetch52WeekRange(Stock stock) {
+        return Optional.empty();
     }
 
     private List<PriceSnapshot> parseAndSave(Stock stock, String json) throws Exception {

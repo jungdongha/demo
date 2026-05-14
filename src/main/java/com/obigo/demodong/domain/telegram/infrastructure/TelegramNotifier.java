@@ -27,7 +27,7 @@ public class TelegramNotifier {
                 .bodyValue(Map.of(
                         "chat_id", telegramProperties.chatId(),
                         "text", text,
-                        "parse_mode", "Markdown"
+                        "parse_mode", "HTML"
                 ))
                 .retrieve()
                 .bodyToMono(String.class)

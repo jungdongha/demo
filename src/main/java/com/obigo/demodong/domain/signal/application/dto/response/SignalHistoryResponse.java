@@ -9,6 +9,7 @@ import java.time.LocalDateTime;
 public record SignalHistoryResponse(
         Long reportId,
         String ticker,
+        String stockName,
         SignalType signalType,
         String reason,
         SourceType sourceType,
@@ -18,6 +19,7 @@ public record SignalHistoryResponse(
         return new SignalHistoryResponse(
                 report.getId(),
                 report.getStock().getTicker(),
+                report.getStock().getName(),
                 report.getSignalType(),
                 report.getReason(),
                 report.getSourceType(),

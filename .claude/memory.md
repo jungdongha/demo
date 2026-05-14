@@ -1,10 +1,10 @@
 # Jurine — Agent Memory
-# Last Updated: 2026-05-11
+# Last Updated: 2026-05-13
 
 ## 현재 상태
 
-phase: Phase 1~3 구현 중
-branch: feat
+phase: Phase 5 구현 완료 / Phase 6 설계 대기
+branch: feature/phase5
 base_package: com.obigo.demodong
 
 ## 완료된 도메인
@@ -19,42 +19,85 @@ base_package: com.obigo.demodong
 
 ## 주요 변경 이력
 
+- 2026-05-14: **버그 수정** — `parseReason` 헤더 탐색 불일치 수정
+  - [수정] `StockAnalysisUseCase.parseReason()` — `"판단 근거"` → `"핵심 요약"` (프롬프트 2차 고도화 포맷 반영)
+
+- 2026-05-13: **AI 프롬프트 2차 고도화** (퀀트 애널리스트 관점 보완)
+  - [수정] `PriceSnapshot` — `volume` 컬럼 추가 (nullable)
+  - [수정] `KisKorStockPriceProvider` — `acml_vol` 파싱, `fetch52WeekRange()` (w52_hgpr/w52_lwpr)
+  - [수정] `KisUsaStockPriceProvider` — `tvol` 파싱 추가
+  - [수정] `StockPricePort` — `fetch52WeekRange()` 메서드 추가
+  - [수정] `KisStockPriceRouter` — KOR 52주 데이터 라우팅, USA Optional.empty()
+  - [수정] `PriceAnalysisHelper` — 거래량 5일평균 대비 증감, 52주 고/저 위치, 이격률 과열 경고 레이블
+  - [수정] `stock-analysis-system.st` — CB/BW 목적 구분, 수주 임팩트 기준(매출 10%), 역발상/이격률/거래량/52주 체크리스트, 확신 지수 1~10점
+  - [수정] `stock-analysis-user.st` — CoT 각 단계에 구체적 조건 명시, 데이터 모순 탐지 지시
+
+- 2026-05-13: **AI 프롬프트 1차 고도화** (branch: feature/phase5)
+  - [신규] `PriceAnalysisHelper` (domain/price/domain/service/) — MA20, 추세, 변동성, 5일 모멘텀 계산 후 AI에 주입
+  - [수정] `stock-analysis-system.st` — 분석 철학, 데이터 신뢰도 우선순위, 공시 해석기준(호재/악재/중립), 섹터별 분석 포인트 추가
+  - [수정] `stock-analysis-user.st` — CoT 4단계 지시(공시→뉴스→주가→종합 판정) 추가
+  - [수정] `StockAnalysisUseCase` — `fetchPriceData` → `fetchPriceContext` 교체 (PriceAnalysisHelper 사용), 뉴스/공시 빈값 fallback 메시지 개선
+
+- 2026-05-12: **기획 전면 전환** — 단순 뉴스 기반 → KIS+DART 전문 데이터 통합 MVP로 재정의
+  - **개인 프로젝트 결정**: User 엔티티 / 다중 사용자 / 개인화 기능 불필요. 단일 사용자 구조 유지.
+  - [업데이트] `.claude/docs/roadmap.md` 전면 재작성 (Phase 5~8)
+  - [업데이트] `.claude/core/system-design.yaml` — KIS/DART Provider 패턴, 신규 API 엔드포인트 추가
+  - [업데이트] `.claude/references/data-model/stock/stock.yaml` — dart_corp_code, sector 추가
+  - [업데이트] 루트 `CLAUDE.md` — Phase 테이블, 포맷, Provider 패턴 반영
+
+- 2026-05-12: 아키텍처 규칙 위반 전수 수정 (branch: fix/essential-rules)
+  - [신규] StockReader, StockWriter (domain/stock/domain/service/)
+  - [신규] SignalReportReader, SignalReportWriter (domain/signal/domain/service/)
+  - [신규] StockPricePort 인터페이스 (domain/price/domain/port/) — DIP 적용
+  - [신규] StockErrorCode (domain/stock/application/exception/, 403xx)
+  - [수정] SignalController: SignalReportRepository 직접 의존 제거
+  - [수정] StockAnalysisUseCase: Repository 3개 직접 의존 → 도메인 서비스로 교체
+  - [수정] PortFolioUseCase: StockRepository → StockReader/StockWriter, StockPriceFetcher → StockPricePort
+  - [수정] BriefingScheduler: StockRepository/PortfolioDetailRepository → StockReader/PortfolioReader
+
 - 2026-05-11: .claude 에이전트 컨텍스트 전면 정비 완료
-  - 타 프로젝트(bangjjack/Dawa-BE) 설정 → Jurine 전용으로 교체
-  - manifest.md: Dawa-BE-Agent → Jurine-Agent
-  - essential-rules.yaml: Java 21, Spring Boot 3.4+, H2(dev), Groq AI, SSE, soft delete 규칙 반영
-  - system-design.yaml: 패키지명(com.obigo.demodong), API base_url(/api), 엔드포인트 목록 반영
-  - coding-style.yaml / testing-guide.yaml: Kotlin → Java, Kotest → JUnit 5
-  - build_checker.sh: .kt → .java 수정
-  - 도메인 모델: user → stock / portfolio_detail / signal_report / price_snapshot 교체
-  - soft delete: BaseEntity 구현 확인 후 규칙 및 도메인 모델 전체 반영
-  - features/: auth, example 제거
-  - CLAUDE.md(루트): 252줄 → 47줄 경량화 (기술스택·ERD·API 목록 제거)
-  - CLAUDE_NEXT.md: 정리 후 .claude/docs/roadmap.md 으로 이동 (루트 파일 삭제)
-    - 용어해설 기능 제거, KIS API(KOR) / Alpha Vantage(USA) 전환 계획 반영
 
 ## 현재 환경
 
 ```yaml
-db: H2 in-memory (개발용)
+db: PostgreSQL (prod) / H2 (dev)
 ai: Groq API (llama-3.1-8b-instant)
 port: 8090
 news_kr: Naver News API
 news_us: Yahoo Finance RSS
 notification: Telegram Bot
+stock_price: KIS API (KOR + USA)
+corporate_disclosure: DART API (KOR 종목 공시)
 ```
 
-## 다음 작업 예정
+## 다음 작업 예정 (Phase 3 → Phase 5 순)
 
-- [ ] Phase 3 모닝 브리핑 배치 안정화
-- [ ] 텔레그램 알림 포맷 개선
-- [ ] PostgreSQL 전환 (프로덕션)
-- [ ] Phase 4: 시그널 히스토리 조회 API 완성
+### Phase 3 마무리 (당면 과제)
+- [x] 모닝 브리핑 배치 안정화
+- [x] 텔레그램 알림 포맷 개선 (3줄 요약 원칙 적용)
+
+### Phase 4
+- [x] 시그널 히스토리 조회 API 완성
+
+### Phase 5 구현 과제 ✅ 완료 (2026-05-13)
+> **전제**: 개인 프로젝트 — User 엔티티, 다중 사용자, 개인화 기능 구현하지 않음. 단일 사용자 구조 유지.
+- [x] Stock 테이블 — sector, dart_corp_code 컬럼 추가
+- [x] KisTokenManager 구현 (OAuth2 토큰 발급·캐싱, AtomicReference, 23h 자동 갱신)
+- [x] KisKorStockPriceProvider 구현 (현재가 + 일별 시세, DB 캐싱)
+- [x] KisUsaStockPriceProvider 구현 (NAS→NYS→AMS 거래소 fallback)
+- [x] KisStockPriceRouter — @Primary, KOR/USA 라우팅
+- [x] DartDisclosureProvider 구현 (CorporateDisclosurePort)
+- [x] DartCorpCodeMapper — 앱 시작 시 corpCode.xml ZIP 파싱 + DB 자동 매핑
+- [x] AI 프롬프트 개선 — sector, disclosureData 변수 추가, 판단기준 4항목
 
 ## 참고
 
-- Phase 5+ 로드맵: `.claude/docs/roadmap.md` 참조 (RAG, PGVector, KIS API)
+- Phase 5+ 로드맵: `.claude/docs/roadmap.md` 참조
 - API 기본경로: /api (v1 없음)
 - 시그널 타입: 반드시 BUY | HOLD | SELL 파싱
 - SSE 엔드포인트: GET /api/stock/analyze/{ticker}
 - Soft Delete: BaseEntity.softDelete() 제공 — DELETE API에서 반드시 사용
+- KIS API: 실전/모의 환경 전환은 application.yml `kis.base-url`로만 분리 (vts 포함 여부로 trId 자동 분기)
+- DART API: dart_corp_code는 Stock 테이블에 저장, KOR 종목만 해당
+- KisStockPriceRouter: @Primary StockPricePort — KOR/USA 라우팅. KisKorStockPriceProvider / KisUsaStockPriceProvider는 직접 StockPricePort 미구현 (Spring 빈 충돌 방지)
+- DartCorpCodeMapper: @PostConstruct + @Scheduled(cron="0 30 8 * * MON") 주 1회 갱신

@@ -1,0 +1,65 @@
+# UserWatchlist Entity
+# Last Updated: 2026-05-12
+# ⚠️ NOT IMPLEMENTING: 개인 프로젝트 — Stock.is_watchlist 플래그 방식 그대로 유지.
+# 설계 참고용으로만 보존. 실제 구현 대상 아님.
+
+entity: USER_WATCHLIST
+description: 사용자와 관심 종목의 연관 엔티티. 1명의 사용자가 무제한 종목 등록 가능.
+table: user_watchlist
+domain: Watchlist
+
+columns:
+  - id:
+      type: BIGINT
+      nullable: false
+      pk: true
+      description: PK (Auto-Increment)
+  - user_id:
+      type: BIGINT
+      nullable: false
+      fk: users.user_id
+      description: 사용자 FK
+  - stock_id:
+      type: BIGINT
+      nullable: false
+      fk: stock.stock_id
+      description: 종목 FK
+  - display_order:
+      type: INT
+      nullable: false
+      default: 0
+      description: 브리핑 알림 내 종목 표시 순서 (낮을수록 먼저 표시)
+  - created_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 등록 일시 — BaseEntity 상속
+  - updated_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 최종 수정 일시 — BaseEntity 상속
+  - deleted:
+      type: BOOLEAN
+      nullable: false
+      default: false
+      description: 소프트 삭제 여부 — BaseEntity 상속
+  - deleted_at:
+      type: TIMESTAMP
+      nullable: true
+      description: 소프트 삭제 일시 — BaseEntity 상속
+
+constraints:
+  - unique: [user_id, stock_id]
+    description: "같은 사용자가 동일 종목을 중복 등록 불가 (deleted=false 기준)"
+
+relationships:
+  - User: ManyToOne(Lazy) — user_id FK
+  - Stock: ManyToOne(Lazy) — stock_id FK
+
+business_logic:
+  - "create(user, stock, displayOrder): 관심 종목 등록 (정적 팩토리 메서드)"
+  - "remove(): softDelete() 호출 — 실제 row 삭제 금지"
+
+migration_note: >
+  Phase 5 전환 시 기존 Stock.is_watchlist=true 인 종목은
+  시스템 기본 사용자(telegram_chat_id='SYSTEM') 소유의 UserWatchlist로 일괄 이관.
+  이관 완료 후 Stock.is_watchlist 컬럼은 deprecated 처리 (삭제는 Phase 6).

@@ -1,8 +1,9 @@
 # PortfolioDetail Entity
-# Last Updated: 2026-05-11
+# Last Updated: 2026-05-12
+# 기획 변경 (Phase 5): user_id FK 추가 — 보유 종목도 사용자 단위로 관리.
 
 entity: PORTFOLIO_DETAIL
-description: 보유 종목의 매수 정보 (수량, 평균 매수가)
+description: 사용자의 보유 종목 매수 정보 (수량, 평균 매수가). 수익률 계산에 활용.
 table: portfolio_detail
 domain: Portfolio
 
@@ -12,6 +13,11 @@ columns:
       nullable: false
       pk: true
       description: PK (Auto-Increment)
+  - user_id:
+      type: BIGINT
+      nullable: false
+      fk: users.user_id
+      description: 사용자 FK — 어느 사용자의 보유 종목인지 식별
   - stock_id:
       type: BIGINT
       nullable: false
@@ -22,7 +28,7 @@ columns:
       nullable: false
       description: 보유 수량
   - avg_price:
-      type: DECIMAL(10,2)
+      type: DECIMAL(12,2)
       nullable: false
       description: 평균 매수가 (수익률 계산용)
   - created_at:
@@ -43,9 +49,15 @@ columns:
       nullable: true
       description: 소프트 삭제 일시 — BaseEntity 상속
 
+constraints:
+  - unique: [user_id, stock_id]
+    description: "같은 사용자가 동일 종목을 중복 등록 불가 (deleted=false 기준)"
+
 relationships:
+  - User: ManyToOne(Lazy) — user_id FK
   - Stock: ManyToOne(Lazy) — stock_id FK
 
 business_logic:
-  - "create(stock, quantity, avgPrice): 보유 종목 등록 (정적 팩토리 메서드)"
+  - "create(user, stock, quantity, avgPrice): 보유 종목 등록 (정적 팩토리 메서드)"
   - "calculateProfitRate(currentPrice): (currentPrice - avgPrice) / avgPrice * 100"
+  - "updateHolding(quantity, avgPrice): 수량·평균가 수정 (추가 매수 등)"

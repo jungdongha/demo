@@ -1,0 +1,11 @@
+version: '3.8'
+
+services:
+  demo-dong-app:
+    container_name: demo-dong
+    image: demo-dong
+    ports:
+      - "8090:8090"
+    env_file:
+      - ./.env
+    restart: always

@@ -24,6 +24,10 @@ public class PriceSnapshot extends BaseEntity {
     @Column(nullable = false, precision = 10, scale = 2)
     private BigDecimal closePrice;
 
+    /** 일별 거래량 (주). KIS API 제공 시 저장, 없으면 null. */
+    @Column
+    private Long volume;
+
     @Column(nullable = false)
     private LocalDate recordedDate;
 }
