@@ -13,21 +13,22 @@ import com.obigo.demodong.domain.signal.application.dto.response.StockAnalysisRe
 import com.obigo.demodong.domain.signal.domain.entity.SignalReport;
 import com.obigo.demodong.domain.signal.domain.enums.SignalType;
 import com.obigo.demodong.domain.signal.domain.enums.SourceType;
-import com.obigo.demodong.domain.stock.application.exception.StockErrorCode;
-import com.obigo.demodong.global.common.exception.ApplicationException;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.Pageable;
 import com.obigo.demodong.domain.signal.domain.service.SignalReportReader;
 import com.obigo.demodong.domain.signal.domain.service.SignalReportWriter;
+import com.obigo.demodong.domain.signal.infrastructure.crawler.NewsCrawlerStrategy;
+import com.obigo.demodong.domain.stock.application.exception.StockErrorCode;
 import com.obigo.demodong.domain.stock.domain.entity.Stock;
 import com.obigo.demodong.domain.stock.domain.enums.MarketType;
 import com.obigo.demodong.domain.stock.domain.service.StockReader;
 import com.obigo.demodong.domain.stock.domain.service.StockWriter;
+import com.obigo.demodong.global.common.exception.ApplicationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.prompt.PromptTemplate;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.io.Resource;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -37,6 +38,7 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 @Slf4j
 @Service
@@ -44,7 +46,7 @@ import java.util.Map;
 @Transactional(readOnly = true)
 public class StockAnalysisUseCase {
 
-    private final List<com.obigo.demodong.domain.signal.infrastructure.crawler.NewsCrawlerStrategy> crawlers;
+    private final List<NewsCrawlerStrategy> crawlers;
     private final AiChatService aiChatService;
     private final StockReader stockReader;
     private final StockWriter stockWriter;
@@ -221,7 +223,7 @@ public class StockAnalysisUseCase {
     private String fetchPriceContext(Stock stock) {
         try {
             List<PriceSnapshot> snapshots = stockPricePort.fetchMonthlyPrices(stock);
-            java.util.Optional<BigDecimal[]> w52 = stockPricePort.fetch52WeekRange(stock);
+            Optional<BigDecimal[]> w52 = stockPricePort.fetch52WeekRange(stock);
             return priceAnalysisHelper.buildPriceContext(snapshots, w52);
         } catch (Exception e) {
             log.warn("주가 데이터 조회 실패 - ticker: {}", stock.getTicker());
@@ -232,9 +234,8 @@ public class StockAnalysisUseCase {
     private String fetchDisclosureData(Stock stock) {
         if (stock.getMarketType() != MarketType.KOR) return "해외 종목 — 공시 데이터 미지원";
 
-        // KOR 종목인데 DART corp_code가 없으면 공시 조회 자체가 불가 → 오류 반환
         if (stock.getDartCorpCode() == null || stock.getDartCorpCode().isBlank()) {
-            log.warn("DART corp_code 미매핑 - ticker: {}. 티커(6자리 숫자)로 다시 시도하거나 DART 매핑을 확인하세요.", stock.getTicker());
+            log.warn("DART corp_code 미매핑 - ticker: {}", stock.getTicker());
             throw new ApplicationException(StockErrorCode.DART_CORP_CODE_NOT_MAPPED);
         }
 
@@ -242,7 +243,7 @@ public class StockAnalysisUseCase {
             List<DisclosureItem> items = corporateDisclosurePort.fetchRecentDisclosures(stock.getDartCorpCode(), 5);
             return corporateDisclosurePort.format(items);
         } catch (ApplicationException e) {
-            throw e;  // 비즈니스 예외는 그대로 re-throw
+            throw e;
         } catch (Exception e) {
             log.warn("공시 데이터 조회 실패 - ticker: {}, error: {}", stock.getTicker(), e.getMessage());
             return "공시 정보 없음 (DART API 일시 오류)";
@@ -265,7 +266,7 @@ public class StockAnalysisUseCase {
                 .orElse("");
     }
 
-    private com.obigo.demodong.domain.signal.infrastructure.crawler.NewsCrawlerStrategy findCrawler(MarketType marketType) {
+    private NewsCrawlerStrategy findCrawler(MarketType marketType) {
         return crawlers.stream()
                 .filter(c -> c.getMarketType() == marketType)
                 .findFirst()

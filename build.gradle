@@ -33,8 +33,8 @@ dependencies {
     testImplementation 'io.projectreactor:reactor-test'
 
     // (참고) 'spring-boot-h2console'이라는 의존성은 존재하지 않으며, web과 h2가 있으면 yml 설정만으로 자동 활성화된다.
-    // runtimeOnly 'com.h2database:h2'
     runtimeOnly 'org.postgresql:postgresql'
+    testRuntimeOnly 'com.h2database:h2'
 
     // 5. Spring AI OpenAI 공식 스타터 의존성 (Groq 연동용)
     implementation 'org.springframework.ai:spring-ai-openai-spring-boot-starter'
