@@ -1,9 +1,11 @@
 package com.obigo.demodong.domain.price.infrastructure.dart;
 
+import com.obigo.demodong.domain.stock.application.exception.StockErrorCode;
 import com.obigo.demodong.domain.stock.domain.entity.Stock;
 import com.obigo.demodong.domain.stock.domain.enums.MarketType;
 import com.obigo.demodong.domain.stock.domain.service.StockReader;
 import com.obigo.demodong.domain.stock.domain.service.StockWriter;
+import com.obigo.demodong.global.common.exception.ApplicationException;
 import com.obigo.demodong.global.common.infrastructure.dart.DartProperties;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
@@ -41,6 +43,9 @@ public class DartCorpCodeMapper {
     /** 회사명 → 티커 코드 (한글 이름 검색용) */
     private final Map<String, String> nameToTickerMap = new ConcurrentHashMap<>();
 
+    /** 티커 → DART 법인코드 (신규 종목 생성 시 즉시 매핑용) */
+    private final Map<String, String> tickerToCorpCodeMap = new ConcurrentHashMap<>();
+
     @PostConstruct
     public void syncOnStartup() {
         log.info("[DART] corp_code 자동 매핑 시작");
@@ -73,20 +78,42 @@ public class DartCorpCodeMapper {
     }
 
     /**
+     * 티커로 DART 법인코드 즉시 조회 (신규 종목 생성 시 사용).
+     * corpCode.xml이 로드된 경우에만 유효. 없으면 Optional.empty().
+     */
+    public Optional<String> resolveCorpCodeByTicker(String ticker) {
+        return Optional.ofNullable(tickerToCorpCodeMap.get(ticker));
+    }
+    /**
      * 한글 회사명으로 티커 검색.
-     * 1순위: 완전 일치 / 2순위: 단일 부분 일치 / 복수 일치·미일치: empty
+     * <ul>
+     *   <li>완전 일치: 즉시 반환</li>
+     *   <li>단일 부분 일치: 반환</li>
+     *   <li>복수 부분 일치: {@link StockErrorCode#STOCK_NAME_AMBIGUOUS} 예외 (후보 목록 로그 출력)</li>
+     *   <li>미일치: {@link StockErrorCode#STOCK_NOT_FOUND} 예외</li>
+     * </ul>
      */
     public Optional<String> resolveTickerByName(String name) {
         String exact = nameToTickerMap.get(name);
         if (exact != null) return Optional.of(exact);
 
-        List<String> matches = nameToTickerMap.entrySet().stream()
+        List<Map.Entry<String, String>> matchedEntries = nameToTickerMap.entrySet().stream()
                 .filter(e -> e.getKey().contains(name))
-                .map(Map.Entry::getValue)
                 .distinct()
                 .toList();
 
-        if (matches.size() == 1) return Optional.of(matches.get(0));
+        if (matchedEntries.size() == 1) {
+            return Optional.of(matchedEntries.get(0).getValue());
+        }
+
+        if (matchedEntries.size() > 1) {
+            String candidates = matchedEntries.stream()
+                    .map(e -> "'" + e.getKey() + "'(" + e.getValue() + ")")
+                    .collect(java.util.stream.Collectors.joining(", "));
+            log.warn("[DART] 종목명 복수 후보 발견 - query: '{}', 후보: {}", name, candidates);
+            throw new ApplicationException(StockErrorCode.STOCK_NAME_AMBIGUOUS);
+        }
+
         return Optional.empty();
     }
 
@@ -148,6 +175,7 @@ public class DartCorpCodeMapper {
             }
         }
         nameToTickerMap.putAll(newNameMap);
+        tickerToCorpCodeMap.putAll(result);  // ticker → corpCode 캐시 갱신
         log.info("[DART] corpCode.xml 파싱 완료 - {}개 법인", result.size());
         return result;
     }

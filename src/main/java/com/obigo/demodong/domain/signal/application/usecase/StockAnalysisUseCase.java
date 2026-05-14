@@ -2,10 +2,11 @@ package com.obigo.demodong.domain.signal.application.usecase;
 
 import com.obigo.demodong.domain.ai.infrastructure.service.AiChatService;
 import com.obigo.demodong.domain.portfolio.domain.service.PortfolioReader;
+import com.obigo.demodong.domain.price.domain.entity.PriceSnapshot;
 import com.obigo.demodong.domain.price.domain.model.DisclosureItem;
 import com.obigo.demodong.domain.price.domain.port.CorporateDisclosurePort;
 import com.obigo.demodong.domain.price.domain.port.StockPricePort;
-import com.obigo.demodong.domain.price.domain.entity.PriceSnapshot;
+import com.obigo.demodong.domain.price.domain.service.PriceAnalysisHelper;
 import com.obigo.demodong.domain.price.infrastructure.dart.DartCorpCodeMapper;
 import com.obigo.demodong.domain.signal.application.dto.response.SignalHistoryResponse;
 import com.obigo.demodong.domain.signal.application.dto.response.StockAnalysisResponse;
@@ -53,6 +54,7 @@ public class StockAnalysisUseCase {
     private final PortfolioReader portfolioReader;
     private final CorporateDisclosurePort corporateDisclosurePort;
     private final DartCorpCodeMapper dartCorpCodeMapper;
+    private final PriceAnalysisHelper priceAnalysisHelper;
 
     @Value("classpath:prompts/stock-analysis-system.st")
     private Resource systemPromptResource;
@@ -77,7 +79,7 @@ public class StockAnalysisUseCase {
 
         Stock stock = findOrCreateStock(ticker, query, marketType);
         String rawNews = findCrawler(marketType).crawl(query);
-        String priceData = fetchPriceData(stock);
+        String priceData = fetchPriceContext(stock);
         String portfolioContext = buildPortfolioContext(stock);
         String disclosureData = fetchDisclosureData(stock);
 
@@ -85,9 +87,9 @@ public class StockAnalysisUseCase {
         String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
                 "company", stock.getName(),
                 "sector", stock.getSector() != null ? stock.getSector() : "미분류",
-                "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews,
+                "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다. 주가 흐름과 공시 데이터를 중심으로 판단하라." : rawNews,
                 "priceData", priceData,
-                "disclosureData", disclosureData,
+                "disclosureData", disclosureData.isBlank() ? "최근 공시 없음" : disclosureData,
                 "portfolioContext", portfolioContext
         ));
 
@@ -100,50 +102,51 @@ public class StockAnalysisUseCase {
 
     @Transactional
     public Flux<ServerSentEvent<String>> executeStream(String query) {
-        String ticker = resolveQuery(query);
-        MarketType marketType = detectMarketType(ticker);
-        log.info("주식 분석(SSE) 시작 - query: {}, ticker: {}, marketType: {}", query, ticker, marketType);
+        return Flux.defer(() -> {
+            String ticker = resolveQuery(query);
+            MarketType marketType = detectMarketType(ticker);
+            log.info("주식 분석(SSE) 시작 - query: {}, ticker: {}, marketType: {}", query, ticker, marketType);
 
-        Stock stock = findOrCreateStock(ticker, query, marketType);
-        String rawNews = findCrawler(marketType).crawl(query);
-        String priceData = fetchPriceData(stock);
-        String portfolioContext = buildPortfolioContext(stock);
-        String disclosureData = fetchDisclosureData(stock);
+            Stock stock = findOrCreateStock(ticker, query, marketType);
+            String rawNews = findCrawler(marketType).crawl(query);
+            String priceData = fetchPriceContext(stock);
+            String portfolioContext = buildPortfolioContext(stock);
+            String disclosureData = fetchDisclosureData(stock);
 
-        String systemPrompt = new PromptTemplate(systemPromptResource).render();
-        String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
-                "company", stock.getName(),
-                "sector", stock.getSector() != null ? stock.getSector() : "미분류",
-                "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다." : rawNews,
-                "priceData", priceData,
-                "disclosureData", disclosureData,
-                "portfolioContext", portfolioContext
-        ));
+            String systemPrompt = new PromptTemplate(systemPromptResource).render();
+            String userPrompt = new PromptTemplate(userPromptResource).render(Map.of(
+                    "company", stock.getName(),
+                    "sector", stock.getSector() != null ? stock.getSector() : "미분류",
+                    "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다. 주가 흐름과 공시 데이터를 중심으로 판단하라." : rawNews,
+                    "priceData", priceData,
+                    "disclosureData", disclosureData.isBlank() ? "최근 공시 없음" : disclosureData,
+                    "portfolioContext", portfolioContext
+            ));
 
-        StringBuilder fullContent = new StringBuilder();
+            StringBuilder fullContent = new StringBuilder();
 
-        return aiChatService.streamChatResponse(systemPrompt, userPrompt)
-                .doOnNext(fullContent::append)
-                .map(chunk -> ServerSentEvent.<String>builder()
-                        .event("message")
-                        .data(chunk)
-                        .build())
-                .concatWith(Flux.defer(() -> {
-                    String analysis = fullContent.toString();
-                    SignalType signalType = saveReport(stock, rawNews, analysis, SourceType.ON_DEMAND);
-                    log.info("주식 분석(SSE) 완료 - query: {}, signal: {}", query, signalType);
-                    return Flux.just(ServerSentEvent.<String>builder()
-                            .event("done")
-                            .data(signalType.name())
-                            .build());
-                }))
-                .onErrorResume(e -> {
-                    log.error("주식 분석(SSE) 오류 - query: {}, error: {}", query, e.getMessage());
-                    return Flux.just(ServerSentEvent.<String>builder()
-                            .event("error")
-                            .data(e.getMessage())
-                            .build());
-                });
+            return aiChatService.streamChatResponse(systemPrompt, userPrompt)
+                    .doOnNext(fullContent::append)
+                    .map(chunk -> ServerSentEvent.<String>builder()
+                            .event("message")
+                            .data(chunk)
+                            .build())
+                    .concatWith(Flux.defer(() -> {
+                        String analysis = fullContent.toString();
+                        SignalType signalType = saveReport(stock, rawNews, analysis, SourceType.ON_DEMAND);
+                        log.info("주식 분석(SSE) 완료 - query: {}, signal: {}", query, signalType);
+                        return Flux.just(ServerSentEvent.<String>builder()
+                                .event("done")
+                                .data(signalType.name())
+                                .build());
+                    }));
+        }).onErrorResume(e -> {
+            log.error("주식 분석(SSE) 오류 - query: {}, error: {}", query, e.getMessage());
+            return Flux.just(ServerSentEvent.<String>builder()
+                    .event("error")
+                    .data(e.getMessage())
+                    .build());
+        });
     }
 
     public List<SignalHistoryResponse> getTodayReports() {
@@ -199,34 +202,50 @@ public class StockAnalysisUseCase {
      */
     private Stock findOrCreateStock(String ticker, String displayName, MarketType marketType) {
         return stockReader.findByTicker(ticker)
-                .orElseGet(() -> stockWriter.save(
-                        Stock.builder()
-                                .ticker(ticker)
-                                .name(displayName)
-                                .marketType(marketType)
-                                .isWatchlist(false)
-                                .build()
-                ));
+                .orElseGet(() -> {
+                    String dartCorpCode = marketType == MarketType.KOR
+                            ? dartCorpCodeMapper.resolveCorpCodeByTicker(ticker).orElse(null)
+                            : null;
+                    return stockWriter.save(
+                            Stock.builder()
+                                    .ticker(ticker)
+                                    .name(displayName)
+                                    .marketType(marketType)
+                                    .dartCorpCode(dartCorpCode)
+                                    .isWatchlist(false)
+                                    .build()
+                    );
+                });
     }
 
-    private String fetchPriceData(Stock stock) {
+    private String fetchPriceContext(Stock stock) {
         try {
             List<PriceSnapshot> snapshots = stockPricePort.fetchMonthlyPrices(stock);
-            return stockPricePort.formatPriceHistory(snapshots);
+            java.util.Optional<BigDecimal[]> w52 = stockPricePort.fetch52WeekRange(stock);
+            return priceAnalysisHelper.buildPriceContext(snapshots, w52);
         } catch (Exception e) {
             log.warn("주가 데이터 조회 실패 - ticker: {}", stock.getTicker());
-            return "주가 데이터 조회 실패";
+            return "주가 데이터 조회 실패 — 주가 분석 없이 뉴스·공시만으로 판단하라.";
         }
     }
 
     private String fetchDisclosureData(Stock stock) {
         if (stock.getMarketType() != MarketType.KOR) return "해외 종목 — 공시 데이터 미지원";
+
+        // KOR 종목인데 DART corp_code가 없으면 공시 조회 자체가 불가 → 오류 반환
+        if (stock.getDartCorpCode() == null || stock.getDartCorpCode().isBlank()) {
+            log.warn("DART corp_code 미매핑 - ticker: {}. 티커(6자리 숫자)로 다시 시도하거나 DART 매핑을 확인하세요.", stock.getTicker());
+            throw new ApplicationException(StockErrorCode.DART_CORP_CODE_NOT_MAPPED);
+        }
+
         try {
             List<DisclosureItem> items = corporateDisclosurePort.fetchRecentDisclosures(stock.getDartCorpCode(), 5);
             return corporateDisclosurePort.format(items);
+        } catch (ApplicationException e) {
+            throw e;  // 비즈니스 예외는 그대로 re-throw
         } catch (Exception e) {
-            log.warn("공시 데이터 조회 실패 - ticker: {}", stock.getTicker());
-            return "공시 정보 없음";
+            log.warn("공시 데이터 조회 실패 - ticker: {}, error: {}", stock.getTicker(), e.getMessage());
+            return "공시 정보 없음 (DART API 일시 오류)";
         }
     }
 
@@ -269,7 +288,7 @@ public class StockAnalysisUseCase {
         StringBuilder sb = new StringBuilder();
         boolean capture = false;
         for (String line : content.split("\n")) {
-            if (line.contains("판단 근거")) { capture = true; continue; }
+            if (line.contains("핵심 요약")) { capture = true; continue; }
             if (capture && line.trim().startsWith("-") && !line.trim().startsWith("---"))
                 sb.append(line.trim()).append("\n");
             if (capture && line.trim().startsWith("---")) break;

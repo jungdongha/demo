@@ -19,6 +19,25 @@ base_package: com.obigo.demodong
 
 ## 주요 변경 이력
 
+- 2026-05-14: **버그 수정** — `parseReason` 헤더 탐색 불일치 수정
+  - [수정] `StockAnalysisUseCase.parseReason()` — `"판단 근거"` → `"핵심 요약"` (프롬프트 2차 고도화 포맷 반영)
+
+- 2026-05-13: **AI 프롬프트 2차 고도화** (퀀트 애널리스트 관점 보완)
+  - [수정] `PriceSnapshot` — `volume` 컬럼 추가 (nullable)
+  - [수정] `KisKorStockPriceProvider` — `acml_vol` 파싱, `fetch52WeekRange()` (w52_hgpr/w52_lwpr)
+  - [수정] `KisUsaStockPriceProvider` — `tvol` 파싱 추가
+  - [수정] `StockPricePort` — `fetch52WeekRange()` 메서드 추가
+  - [수정] `KisStockPriceRouter` — KOR 52주 데이터 라우팅, USA Optional.empty()
+  - [수정] `PriceAnalysisHelper` — 거래량 5일평균 대비 증감, 52주 고/저 위치, 이격률 과열 경고 레이블
+  - [수정] `stock-analysis-system.st` — CB/BW 목적 구분, 수주 임팩트 기준(매출 10%), 역발상/이격률/거래량/52주 체크리스트, 확신 지수 1~10점
+  - [수정] `stock-analysis-user.st` — CoT 각 단계에 구체적 조건 명시, 데이터 모순 탐지 지시
+
+- 2026-05-13: **AI 프롬프트 1차 고도화** (branch: feature/phase5)
+  - [신규] `PriceAnalysisHelper` (domain/price/domain/service/) — MA20, 추세, 변동성, 5일 모멘텀 계산 후 AI에 주입
+  - [수정] `stock-analysis-system.st` — 분석 철학, 데이터 신뢰도 우선순위, 공시 해석기준(호재/악재/중립), 섹터별 분석 포인트 추가
+  - [수정] `stock-analysis-user.st` — CoT 4단계 지시(공시→뉴스→주가→종합 판정) 추가
+  - [수정] `StockAnalysisUseCase` — `fetchPriceData` → `fetchPriceContext` 교체 (PriceAnalysisHelper 사용), 뉴스/공시 빈값 fallback 메시지 개선
+
 - 2026-05-12: **기획 전면 전환** — 단순 뉴스 기반 → KIS+DART 전문 데이터 통합 MVP로 재정의
   - **개인 프로젝트 결정**: User 엔티티 / 다중 사용자 / 개인화 기능 불필요. 단일 사용자 구조 유지.
   - [업데이트] `.claude/docs/roadmap.md` 전면 재작성 (Phase 5~8)

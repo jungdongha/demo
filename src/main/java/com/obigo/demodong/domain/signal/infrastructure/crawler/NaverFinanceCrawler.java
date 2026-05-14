@@ -33,7 +33,7 @@ public class NaverFinanceCrawler implements NewsCrawlerStrategy {
         NaverNewsResponse response = naverWebClient.get()
                 .uri(uriBuilder -> uriBuilder
                         .queryParam("query", query + " 주식")
-                        .queryParam("display", 10)
+                        .queryParam("display", 100)
                         .queryParam("sort", "date")
                         .build())
                 .retrieve()
@@ -46,10 +46,28 @@ public class NaverFinanceCrawler implements NewsCrawlerStrategy {
             return "";
         }
 
-        List<NaverNewsItem> items = response.items();
-        String result = IntStream.range(0, items.size())
+        ZonedDateTime twentyFourHoursAgo = ZonedDateTime.now().minusHours(24);
+
+        List<NaverNewsItem> filteredItems = response.items().stream()
+                .filter(item -> {
+                    try {
+                        ZonedDateTime pubDate = ZonedDateTime.parse(item.pubDate(), DateTimeFormatter.RFC_1123_DATE_TIME);
+                        return pubDate.isAfter(twentyFourHoursAgo);
+                    } catch (Exception e) {
+                        return false;
+                    }
+                })
+                .limit(10)
+                .toList();
+
+        if (filteredItems.isEmpty()) {
+            log.warn("Naver Crawl() 24시간 이내 뉴스 없음 - query: {}", query);
+            return "";
+        }
+
+        String result = IntStream.range(0, filteredItems.size())
                 .mapToObj(i -> {
-                    NaverNewsItem item = items.get(i);
+                    NaverNewsItem item = filteredItems.get(i);
                     String title = Jsoup.parse(item.title()).text();
                     String description = Jsoup.parse(item.description()).text();
                     String date = formatDate(item.pubDate());
@@ -57,7 +75,7 @@ public class NaverFinanceCrawler implements NewsCrawlerStrategy {
                 })
                 .collect(Collectors.joining("\n\n"));
 
-        log.info("Naver crawl() 완료 - {}건", items.size());
+        log.info("Naver crawl() 완료 - {}건", filteredItems.size());
         return result;
     }
 

@@ -10,6 +10,7 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 /**
@@ -45,4 +46,17 @@ public class KisStockPriceRouter implements StockPricePort {
                 .map(s -> s.getRecordedDate() + ": " + s.getClosePrice())
                 .collect(Collectors.joining(", "));
     }
+
+    /**
+     * 52주 고/저가 조회.
+     * KOR: KIS inquire-price output 필드 활용
+     * USA: KIS 해외주식 API 미제공 → Optional.empty()
+     */
+    @Override
+    public Optional<BigDecimal[]> fetch52WeekRange(Stock stock) {
+        if (stock.getMarketType() != MarketType.KOR) return Optional.empty();
+        return korProvider.fetch52WeekRange(stock)
+                .map(r -> new BigDecimal[]{r.high52(), r.low52()});
+    }
 }
+

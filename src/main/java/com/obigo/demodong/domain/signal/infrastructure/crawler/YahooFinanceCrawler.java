@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -44,17 +45,36 @@ public class YahooFinanceCrawler implements NewsCrawlerStrategy {
                 return "";
             }
 
-            int count = Math.min(items.size(), 10);
-            String result = IntStream.range(0, count)
+            ZonedDateTime twentyFourHoursAgo = ZonedDateTime.now().minusHours(24);
+
+            List<org.jsoup.nodes.Element> filteredItems = items.stream()
+                    .filter(item -> {
+                        try {
+                            String pubDateStr = item.select("pubDate").text();
+                            ZonedDateTime pubDate = ZonedDateTime.parse(pubDateStr, DateTimeFormatter.RFC_1123_DATE_TIME);
+                            return pubDate.isAfter(twentyFourHoursAgo);
+                        } catch (Exception e) {
+                            return false;
+                        }
+                    })
+                    .limit(10)
+                    .toList();
+
+            if (filteredItems.isEmpty()) {
+                log.warn("[YahooFinanceCrawler] 24시간 이내 뉴스 없음 - ticker: {}", query);
+                return "";
+            }
+
+            String result = IntStream.range(0, filteredItems.size())
                     .mapToObj(i -> {
-                        String title = items.get(i).select("title").text();
-                        String description = items.get(i).select("description").text();
-                        String date = formatDate(items.get(i).select("pubDate").text());
+                        String title = filteredItems.get(i).select("title").text();
+                        String description = filteredItems.get(i).select("description").text();
+                        String date = formatDate(filteredItems.get(i).select("pubDate").text());
                         return String.format("[%d] %s\n제목: %s\n내용: %s", i + 1, date, title, description);
                     })
                     .collect(Collectors.joining("\n\n"));
 
-            log.info("[YahooFinanceCrawler] 완료 - {}건", count);
+            log.info("[YahooFinanceCrawler] 완료 - {}건", filteredItems.size());
             return result;
 
         } catch (IOException e) {

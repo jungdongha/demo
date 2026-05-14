@@ -15,6 +15,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 @Slf4j
 @Component
@@ -46,6 +47,40 @@ public class KisKorStockPriceProvider {
         } catch (Exception e) {
             log.warn("[KIS-KOR] 현재가 조회 실패 - ticker: {}, error: {}", stock.getTicker(), e.getMessage());
             return null;
+        }
+    }
+
+    /**
+     * 52주 고가/저가를 KIS 현재가 조회 API 출력(output)에서 추출.
+     * stck_hgpr = 52주 최고가, stck_lwpr = 52주 최저가
+     * 실패 시 Optional.empty() 반환.
+     */
+    public Optional<Kis52WeekRange> fetch52WeekRange(Stock stock) {
+        try {
+            Kis52WeekResponse response = kisWebClient.get()
+                    .uri(uriBuilder -> uriBuilder
+                            .path("/uapi/domestic-stock/v1/quotations/inquire-price")
+                            .queryParam("FID_COND_MRKT_DIV_CODE", "J")
+                            .queryParam("FID_INPUT_ISCD", stock.getTicker())
+                            .build())
+                    .header("Authorization", "Bearer " + kisTokenManager.getAccessToken())
+                    .header("tr_id", kisTokenManager.trId("FHKST01010100", "VHKST01010100"))
+                    .retrieve()
+                    .bodyToMono(Kis52WeekResponse.class)
+                    .block();
+
+            if (response == null || response.output() == null) return Optional.empty();
+            Kis52WeekOutput o = response.output();
+            if (o.w52Hgpr() == null || o.w52Lwpr() == null
+                    || o.w52Hgpr().isBlank() || o.w52Lwpr().isBlank()) return Optional.empty();
+
+            return Optional.of(new Kis52WeekRange(
+                    new BigDecimal(o.w52Hgpr()),
+                    new BigDecimal(o.w52Lwpr())
+            ));
+        } catch (Exception e) {
+            log.warn("[KIS-KOR] 52주 고/저가 조회 실패 - ticker: {}, error: {}", stock.getTicker(), e.getMessage());
+            return Optional.empty();
         }
     }
 
@@ -85,10 +120,16 @@ public class KisKorStockPriceProvider {
                 LocalDate date = LocalDate.parse(item.stckBsopDate(), KIS_DATE);
                 if (priceSnapshotRepository.findByStockAndRecordedDate(stock, date).isPresent()) continue;
 
+                Long volume = null;
+                if (item.acmlVol() != null && !item.acmlVol().isBlank()) {
+                    try { volume = Long.parseLong(item.acmlVol()); } catch (NumberFormatException ignored) {}
+                }
+
                 PriceSnapshot snapshot = priceSnapshotRepository.save(
                         PriceSnapshot.builder()
                                 .stock(stock)
                                 .closePrice(new BigDecimal(item.stckClpr()))
+                                .volume(volume)
                                 .recordedDate(date)
                                 .build()
                 );
@@ -102,6 +143,8 @@ public class KisKorStockPriceProvider {
         }
     }
 
+    // ──────────── Response Records ────────────
+
     @JsonIgnoreProperties(ignoreUnknown = true)
     record KisCurrentPriceResponse(KisCurrentOutput output) {}
 
@@ -109,11 +152,24 @@ public class KisKorStockPriceProvider {
     record KisCurrentOutput(@JsonProperty("stck_prpr") String stckPrpr) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
+    record Kis52WeekResponse(Kis52WeekOutput output) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Kis52WeekOutput(
+            @JsonProperty("w52_hgpr") String w52Hgpr,
+            @JsonProperty("w52_lwpr") String w52Lwpr
+    ) {}
+
+    /** 52주 고가/저가 VO */
+    public record Kis52WeekRange(BigDecimal high52, BigDecimal low52) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record KisDailyPriceResponse(@JsonProperty("output2") List<KisDailyItem> output2) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record KisDailyItem(
             @JsonProperty("stck_bsop_date") String stckBsopDate,
-            @JsonProperty("stck_clpr") String stckClpr
+            @JsonProperty("stck_clpr")      String stckClpr,
+            @JsonProperty("acml_vol")       String acmlVol       // 누적 거래량
     ) {}
 }

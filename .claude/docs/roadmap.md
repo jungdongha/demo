@@ -176,13 +176,17 @@ NewsPort (domain interface — 기존 유지)
 
 ---
 
-## Phase 7 — RAG + PGVector (벡터 DB 도입)
+## Phase 7 — RAG + PGVector (금융 특화 에이전트로 진화)
+# Last Updated: 2026-05-13
 
 ### 목표
 
 DART 공시·뉴스·과거 시그널을 벡터로 저장하고, 현재 상황과 **유사한 과거 케이스를 검색**하여 시그널 근거를 강화한다.
+단순 텍스트 유사도 검색을 넘어, **[과거 공시 + 당시 시그널 + 결과 Alpha]** 세트를 AI에게 주입하는 '비교 분석' 방식으로 고도화한다.
 
-### 기술 스택 추가
+---
+
+### 7-1. 기술 스택
 
 ```yaml
 spring:
@@ -191,102 +195,298 @@ spring:
       pgvector:
         index-type: HNSW
         distance-type: COSINE_DISTANCE
-        dimensions: 1536
-```
+        dimensions: 1536   # text-embedding-3-small 기준
+        # HNSW 정밀도 파라미터 (데이터 수 증가 시 조정)
+        # m: 16             # 연결 수 (기본 16, 높을수록 정밀·느림)
+        # ef-construction: 64  # 인덱스 빌드 정밀도
 
-### 전체 흐름
-
-```
-[데이터 수집]
-DART 공시 + 크롤링 뉴스 + 과거 시그널 결과
-        ↓
-[임베딩 변환]
-Spring AI EmbeddingClient → 텍스트를 벡터로 변환
-        ↓
-[벡터 저장]
-PGVector (PostgreSQL 확장 — 별도 DB 불필요)
-        ↓
-[RAG 검색]
-현재 뉴스·공시 입력
-→ 유사 과거 케이스 Top 3 검색
-→ 검색 결과를 프롬프트 {ragContext}에 삽입
-→ AI가 과거 맥락 기반으로 시그널 생성
-```
-
-### 벡터화 대상 데이터
-
-| 데이터 | 소스 | 활용 방식 |
-|---|---|---|
-| DART 공시 청크 | DART API | 기업 재무/사업 맥락 주입 |
-| 크롤링 뉴스 | 네이버/야후 | 유사 뉴스 케이스 검색 |
-| 과거 시그널 + 실제 주가 결과 | 자체 DB | "이 시그널이 맞았나" 근거 주입 |
-
-### 핵심 코드 패턴
-
-```java
-// 공시 임베딩 저장
-vectorStore.add(List.of(
-    new Document(disclosureText, Map.of("ticker", "005930", "type", "dart"))
-));
-
-// 유사 케이스 검색 (현재 뉴스 기준)
-List<Document> results = vectorStore.similaritySearch(
-    SearchRequest.query(currentNewsText)
-                 .withTopK(3)
-                 .withFilterExpression("ticker == '005930'")
-);
-
-// 검색 결과 → 프롬프트 삽입
-String ragContext = results.stream()
-    .map(Document::getContent)
-    .collect(Collectors.joining("\n---\n"));
+# 한국어 금융 특화 임베딩 검토
+# - OpenAI text-embedding-3-small: 범용, API 비용 발생
+# - HuggingFace BGE-M3: 한국어 금융 용어 정확도 우수, 로컬 실행 가능
+#   → DART 공시/뉴스는 BGE-M3, 범용 텍스트는 text-embedding-3-small 이중 전략 고려
 ```
 
 ---
 
-## Phase 8 — 피드백 루프 (시그널 품질 고도화)
+### 7-2. 하이브리드 검색 (Hybrid Search) 도입
+
+> **배경**: 공시 텍스트는 "제3자배정 유상증자", "수시공시" 등 정형화된 키워드가 많아
+> 벡터 유사도만으로는 특정 공시 종류를 놓칠 수 있다.
+
+**Vector Search (Cosine Similarity)** — 문맥·의미 유사도
+**Full-text Search (PostgreSQL tsvector)** — 공시 종류·키워드 정확 매칭
+
+두 결과를 RRF(Reciprocal Rank Fusion) 방식으로 합산하여 최종 Top-K 추출.
+
+```sql
+-- PGVector 확장 + 전문 검색 인덱스 동시 생성
+CREATE INDEX ON rag_document USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX ON rag_document USING gin (to_tsvector('korean', content));
+```
+
+```java
+// 하이브리드 검색 패턴 (Spring AI + 직접 JPQL 병합)
+// 1단계: 벡터 검색 (Top-10)
+List<Document> vectorResults = vectorStore.similaritySearch(
+    SearchRequest.query(currentText)
+        .withTopK(10)
+        .withFilterExpression("sector == 'semiconductor' AND type == 'dart'")
+);
+
+// 2단계: 키워드 FTS 검색 (PostgreSQL 직접)
+// SELECT * FROM rag_document WHERE to_tsvector('korean', content) @@ plainto_tsquery('유상증자')
+
+// 3단계: RRF 스코어 병합 → 상위 3개 선택
+```
+
+---
+
+### 7-3. 메타데이터 필터링 정교화
+
+ticker 외에 **sector** 필터를 필수 적용한다.
+"반도체 수주 공시"와 "바이오 임상 결과"는 문장 구조가 비슷해도
+주가 Alpha 패턴이 완전히 다르기 때문이다.
+
+```java
+// 벡터 저장 시 메타데이터 구조
+vectorStore.add(List.of(
+    new Document(disclosureText, Map.of(
+        "ticker",        "005930",
+        "sector",        "semiconductor",   // ← 신규
+        "type",          "dart",            // dart | news | signal
+        "signal_result", "BUY",             // 당시 시그널
+        "alpha_7d",      "+4.5",            // 결과 Alpha (Phase 8 연동 후 업데이트)
+        "is_failure",    "false"            // 실패 케이스 태그 (Negative Sampling용)
+    ))
+));
+```
+
+| 메타데이터 키 | 값 예시 | 용도 |
+|---|---|---|
+| `ticker` | `005930` | 동일 종목 필터 |
+| `sector` | `semiconductor` | 섹터 패턴 학습 |
+| `type` | `dart` / `news` / `signal` | 데이터 종류 구분 |
+| `signal_result` | `BUY` / `HOLD` / `SELL` | 당시 판단 |
+| `alpha_7d` | `+4.5` | 7일 후 결과 (Phase 8 연동) |
+| `is_failure` | `true` / `false` | Negative Sampling 태그 |
+
+---
+
+### 7-4. RAG Context 재구성 — [공시 + 시그널 + Alpha] 세트 주입
+
+검색된 과거 케이스를 텍스트만 넘기지 않고, **결과까지 포함한 세트**로 주입한다.
+
+```java
+// RAG 컨텍스트 포맷터
+String ragContext = results.stream().map(doc -> {
+    String type       = doc.getMetadata().getOrDefault("type", "").toString();
+    String signal     = doc.getMetadata().getOrDefault("signal_result", "?").toString();
+    String alpha      = doc.getMetadata().getOrDefault("alpha_7d", "미측정").toString();
+    String isFailure  = doc.getMetadata().getOrDefault("is_failure", "false").toString();
+    String prefix     = "true".equals(isFailure) ? "⚠️ [실패 사례]" : "✅ [성공 사례]";
+    return prefix + " (" + type + ")\n"
+        + doc.getContent() + "\n"
+        + "→ 당시 시그널: " + signal + " / 7일 Alpha: " + alpha + "%";
+}).collect(Collectors.joining("\n\n---\n\n"));
+```
+
+**프롬프트 주입 예시:**
+```
+[유사 과거 케이스]
+✅ [성공 사례] (dart)
+삼성전자 — 3,000억 규모 HBM 공급계약 체결 (매출 대비 12%)
+→ 당시 시그널: BUY / 7일 Alpha: +4.5%
+
+⚠️ [실패 사례] (dart)
+SK하이닉스 — 300억 운영자금 조달 CB 발행
+→ 당시 시그널: HOLD / 7일 Alpha: -6.2%
+
+이 맥락을 참고하되, 현재 데이터와의 차이점을 반드시 고려하여 시그널을 확정하라.
+```
+
+---
+
+### 7-5. Self-Correction — Negative Sampling (자아 성찰 루프)
+
+> **핵심**: "스스로 실수를 교정하는 에이전트"로 진화시키는 핵심 메커니즘.
+
+Alpha가 크게 음수(-)인 '실패 시그널'을 `is_failure=true` 태그로 분리 관리한다.
+새 시그널 생성 시 **성공 사례(Positive)** 와 **실패 사례(Negative)** 를 함께 주입하여
+AI가 과거 실수 패턴을 스스로 인식하게 만든다.
+
+```
+검색 전략:
+- Positive Recall: 유사 상황에서 Alpha > 0이었던 케이스 Top 2
+- Negative Recall: 유사 상황에서 Alpha < -5%였던 케이스 Top 1
+
+→ 프롬프트: "과거에 비슷한 상황에서 BUY를 냈다가 Alpha -10%를 기록한 사례가 있습니다.
+             이번에도 그때와 같은 패턴은 아닌지 검증하고 시그널을 확정하세요."
+```
+
+---
+
+### 7-6. 전체 흐름 (개선 버전)
+
+```
+[신규 뉴스/공시 입력]
+        ↓
+[Hybrid Search: Vector(Cosine) + Keyword(FTS)]
+  필터: sector + type
+        ↓
+[유사 케이스 분류]
+  ├── Positive (Alpha > 0) → ✅ 성공 사례 프롬프트
+  └── Negative (Alpha < -5%) → ⚠️ 실패 경고 프롬프트
+        ↓
+[AI 시니어 애널리스트]
+  입력: 현재 데이터 + RAG Context (성공+실패 세트)
+  출력: 시그널 + 확신 지수 + 판단 근거
+        ↓
+[시그널 저장 + Phase 8 피드백 루프]
+        ↓
+[벡터 DB 메타데이터 업데이트 (Alpha 반영)]
+   ↑___________________________________↓ (자기강화 루프)
+```
+
+---
+
+## Phase 8 — 피드백 루프 (시그널 품질 자동 고도화)
+# Last Updated: 2026-05-13
 
 ### 목표
 
-과거 시그널이 실제로 맞았는지 추적하여 AI 판단 품질을 점진적으로 개선한다.
-단순 등락률이 아닌 **시장 대비 초과 수익률(Alpha)** 지표를 사용하여 시장 노이즈를 제거한다.
+과거 시그널이 실제로 맞았는지 추적하고, 그 결과를 벡터 DB에 피드백하여
+**AI가 자신의 역사적 실수를 참고해 판단을 개선하는** 자기강화 루프를 구축한다.
 
-### Alpha 기반 평가 공식
+---
 
+### 8-1. 다중 타임프레임 Alpha 평가
+
+> 7일 단일 지표는 "7일 후 올랐지만 3일 차에 -15% MDD"인 위험 시그널을 놓칠 수 있다.
+
+| 타임프레임 | 의미 | 수집 스케줄 |
+|---|---|---|
+| T+3 | 단기 모멘텀 (재료 즉시 반응) | 시그널 D+3 영업일 |
+| T+10 | 재료 반영 완료 기간 | 시그널 D+10 영업일 |
+| T+20 | 추세 형성 여부 | 시그널 D+20 영업일 |
+| MDD | 기간 내 최대 낙폭 | T+3 ~ T+20 중 최저가 추적 |
+
+Alpha 공식:
 ```
-Alpha = 종목 수익률(N일) - 벤치마크 지수 수익률(N일)
-
-예시)
-BUY 시그널 → 7일 후 종목 +5%, 코스피 +3% → Alpha +2%  (긍정: 시장 대비 초과)
-BUY 시그널 → 7일 후 종목 +2%, 코스피 +4% → Alpha -2%  (부정: 시장도 못 따라감)
-SELL 시그널 → 7일 후 종목 -5%, 코스피 -1% → Alpha -4% (긍정: 시장보다 더 빠짐)
+Alpha(N) = 종목 수익률(N일) - 벤치마크 지수 수익률(N일)
+MDD = (기간 내 최저가 - 시그널 시점 주가) / 시그널 시점 주가 × 100
 ```
 
-### 추가 테이블
+---
+
+### 8-2. signal_feedback 테이블 (확장 버전)
 
 ```sql
 CREATE TABLE signal_feedback (
-    id               BIGINT       PRIMARY KEY AUTO_INCREMENT,
-    report_id        BIGINT       NOT NULL REFERENCES signal_report(id),
-    price_at_signal  DECIMAL(12,2) NOT NULL,   -- 시그널 생성 시점 주가
-    price_after_7d   DECIMAL(12,2),            -- 7일 후 주가 (스케줄러 수집)
-    index_return_7d  DECIMAL(6,2),             -- 7일간 벤치마크 지수 수익률 (%)
-    stock_return_7d  DECIMAL(6,2),             -- 7일간 종목 수익률 (%)
-    alpha_7d         DECIMAL(6,2),             -- Alpha = stock_return - index_return
-    was_correct      BOOLEAN,                  -- 시그널 방향성과 Alpha 부호 일치 여부
-    evaluated_at     TIMESTAMP
+    id                       BIGINT        PRIMARY KEY,
+    report_id                BIGINT        NOT NULL REFERENCES signal_report(id),
+
+    -- 시그널 시점
+    price_at_signal          DECIMAL(12,2) NOT NULL,
+    expected_reason_category VARCHAR(50),   -- 실적개선 | 수급집중 | 저평가해소 | 공시호재 | 섹터모멘텀
+
+    -- 다중 타임프레임 주가
+    price_after_3d           DECIMAL(12,2),
+    price_after_10d          DECIMAL(12,2),
+    price_after_20d          DECIMAL(12,2),
+    price_mdd                DECIMAL(12,2), -- 기간 내 최저가
+
+    -- 벤치마크 수익률 (코스피 or S&P500)
+    index_return_3d          DECIMAL(6,2),
+    index_return_10d         DECIMAL(6,2),
+    index_return_20d         DECIMAL(6,2),
+
+    -- Alpha (타임프레임별)
+    alpha_3d                 DECIMAL(6,2),
+    alpha_10d                DECIMAL(6,2),
+    alpha_20d                DECIMAL(6,2),
+    mdd_pct                  DECIMAL(6,2), -- 최대 낙폭 %
+
+    -- 평가 결과
+    was_correct_3d           BOOLEAN,      -- T+3 기준 방향성 일치
+    was_correct_10d          BOOLEAN,      -- T+10 기준 (Primary 지표)
+    is_failure               BOOLEAN       -- alpha_10d < -5% → Negative Sampling 대상
+
+    evaluated_at             TIMESTAMP
 );
 ```
 
-### 흐름
+---
+
+### 8-3. expected_reason_category — "예상한 이유가 맞았는가"
+
+시그널 저장 시 **어떤 시나리오로 판단했는지 카테고리**를 함께 기록한다.
+나중에 카테고리별 Alpha 통계를 내어 "어떤 이유의 시그널이 가장 신뢰할 수 있는가"를 도출한다.
+
+| 카테고리 | 예시 시나리오 |
+|---|---|
+| `실적개선` | 매출·영업이익 성장 전망 뉴스 |
+| `공시호재` | 자사주 소각, 대규모 수주 공시 |
+| `수급집중` | 외국인/기관 순매수 + 거래량 급증 |
+| `저평가해소` | PER·PBR 역사적 저점 + 섹터 회복 |
+| `섹터모멘텀` | 동종업계 전반 상승 흐름 |
+
+```java
+// SignalReport 저장 시 카테고리 자동 추론 (Phase 8 구현)
+// AI 출력에서 파싱하거나, 별도 분류 프롬프트로 추출
+signalReport.setExpectedReasonCategory("공시호재");
+```
+
+---
+
+### 8-4. 자기강화 루프 전체 흐름
 
 ```
 시그널 생성 (BUY / HOLD / SELL)
+  + expected_reason_category 저장
         ↓
-7일 후 KIS API로 실제 주가 + 벤치마크 지수 자동 수집
+T+3 / T+10 / T+20 스케줄러
+  → KIS API로 주가 + 벤치마크 지수 수집
+  → Alpha(N) + MDD 계산
+  → signal_feedback 저장
+  → is_failure 태그 결정 (alpha_10d < -5%)
         ↓
-Alpha 계산 후 signal_feedback 저장
+벡터 DB 메타데이터 업데이트
+  → 해당 Document의 alpha_7d, is_failure 갱신
         ↓
-Phase 7 RAG에 "이 시그널의 Alpha = +2% (적중)" 맥락 임베딩
-→ 유사 상황 재발 시 과거 성과 기반 시그널 신뢰도 강화
+다음 분석 시 Hybrid RAG 검색
+  → 실패 케이스가 Negative Warning으로 프롬프트에 주입
+  → AI가 과거 실수를 참고하여 시그널 교정
+        ↓
+카테고리별 Alpha 통계 (대시보드 Phase 6 연동)
+  → "공시호재 카테고리의 T+10 Alpha 평균 +3.2%"
+  → 이 통계를 시스템 프롬프트에 주기적으로 반영
 ```
+
+---
+
+### 8-5. 기술적 주의사항
+
+**HNSW 파라미터 튜닝:**
+```yaml
+# 데이터 1만 건 이하: 기본값으로 충분
+# 실시간 공시 처리로 데이터 증가 시
+m: 16                  # 높일수록 정밀도↑, 인덱스 크기↑
+ef_construction: 64    # 높일수록 빌드 정밀도↑, 속도↓
+ef_search: 40          # 검색 시 후보 수 (runtime 조정 가능)
+```
+
+**임베딩 모델 전략:**
+```
+1순위 (권장): HuggingFace BGE-M3 (로컬)
+  - 한국어 금융 용어 정확도 우수
+  - DART 공시, 네이버 뉴스 처리에 유리
+  - 비용 없음, GPU 있으면 빠름
+
+2순위 (fallback): OpenAI text-embedding-3-small
+  - 범용, 영문 해외 뉴스 처리 시 사용
+  - API 비용 발생
+  - dimensions: 1536
+
+→ 이중 전략: KOR 데이터 → BGE-M3, USA 뉴스 → text-embedding-3-small
+```
+
