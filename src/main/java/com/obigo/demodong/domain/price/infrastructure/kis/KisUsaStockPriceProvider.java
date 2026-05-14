@@ -99,10 +99,16 @@ public class KisUsaStockPriceProvider {
                     LocalDate date = LocalDate.parse(item.xymd(), KIS_DATE);
                     if (priceSnapshotRepository.findByStockAndRecordedDate(stock, date).isPresent()) continue;
 
+                    Long volume = null;
+                    if (item.tvol() != null && !item.tvol().isBlank()) {
+                        try { volume = Long.parseLong(item.tvol()); } catch (NumberFormatException ignored) {}
+                    }
+
                     PriceSnapshot snapshot = priceSnapshotRepository.save(
                             PriceSnapshot.builder()
                                     .stock(stock)
                                     .closePrice(new BigDecimal(item.clos()))
+                                    .volume(volume)
                                     .recordedDate(date)
                                     .build()
                     );
@@ -130,6 +136,7 @@ public class KisUsaStockPriceProvider {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record KisUsaDailyItem(
             @JsonProperty("xymd") String xymd,
-            @JsonProperty("clos") String clos
+            @JsonProperty("clos") String clos,
+            @JsonProperty("tvol") String tvol    // 거래량
     ) {}
 }

@@ -17,6 +17,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -80,6 +81,12 @@ public class StockPriceFetcher implements StockPricePort {
         return snapshots.stream()
                 .map(s -> s.getRecordedDate() + ": " + s.getClosePrice())
                 .collect(Collectors.joining(", "));
+    }
+
+    /** Yahoo Finance 기반 구현 — 52주 데이터 미지원 */
+    @Override
+    public Optional<BigDecimal[]> fetch52WeekRange(Stock stock) {
+        return Optional.empty();
     }
 
     private List<PriceSnapshot> parseAndSave(Stock stock, String json) throws Exception {
