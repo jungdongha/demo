@@ -1,6 +1,6 @@
 spring:
   application:
-    name: demo-dong
+    name: demo-dong\
 
   # Database Settings
   datasource:
@@ -49,12 +49,3 @@ stock:
 telegram:
   bot_token : ${TELEGRAM_BOT_TOKEN}
   chat-id : ${TELEGRAM_CHAT_ID}
-
-dart:
-  api-key: ${DART_API_KEY}
-  base-url: https://opendart.fss.or.kr/api
-
-kis:
-  app-key: ${KIS_APP_KEY}
-  app-secret: ${KIS_APP_SECRET}
-  base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}

@@ -33,7 +33,6 @@ dependencies {
     testImplementation 'io.projectreactor:reactor-test'
 
     // (참고) 'spring-boot-h2console'이라는 의존성은 존재하지 않으며, web과 h2가 있으면 yml 설정만으로 자동 활성화된다.
-
     runtimeOnly 'org.postgresql:postgresql'
     testRuntimeOnly 'com.h2database:h2'
 
