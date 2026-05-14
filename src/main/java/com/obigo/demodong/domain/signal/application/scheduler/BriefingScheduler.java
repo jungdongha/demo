@@ -66,7 +66,7 @@ public class BriefingScheduler {
 
         for (Stock stock : targets) {
             try {
-                StockAnalysisResponse result = stockAnalysisUseCase.execute(stock.getTicker());
+                StockAnalysisResponse result = stockAnalysisUseCase.executeScheduled(stock.getTicker());
                 sb.append(formatSignal(result)).append("\n\n");
                 log.info("배치 분석 완료 - ticker: {}, signal: {}", stock.getTicker(), result.signalType());
             } catch (Exception e) {
