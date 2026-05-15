@@ -28,4 +28,22 @@ public class SignalReportReader {
     public Page<SignalReport> findByTicker(String ticker, Pageable pageable) {
         return signalReportRepository.findByStock_TickerAndDeletedFalseOrderByCreatedAtDesc(ticker, pageable);
     }
+
+    // Phase 8 — 피드백 없는 시그널 (T+3 평가 대상)
+    public List<SignalReport> findSignalsWithoutFeedback(int calendarDays) {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(calendarDays);
+        return signalReportRepository.findSignalsWithoutFeedback(cutoff);
+    }
+
+    // Phase 8 — T+10 미평가 시그널
+    public List<SignalReport> findSignalsNeedingT10(int calendarDays) {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(calendarDays);
+        return signalReportRepository.findSignalsNeedingT10(cutoff);
+    }
+
+    // Phase 8 — T+20 미평가 시그널
+    public List<SignalReport> findSignalsNeedingT20(int calendarDays) {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(calendarDays);
+        return signalReportRepository.findSignalsNeedingT20(cutoff);
+    }
 }

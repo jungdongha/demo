@@ -166,6 +166,7 @@ public class StockAnalysisUseCase {
     public SignalType saveReport(Stock stock, String rawNews, String analysis, SourceType sourceType) {
         SignalType signalType = parseSignalType(analysis);
         String reason = parseReason(analysis);
+        String reasonCategory = inferReasonCategory(analysis, signalType);
         signalReportWriter.save(
                 SignalReport.builder()
                         .stock(stock)
@@ -174,9 +175,46 @@ public class StockAnalysisUseCase {
                         .content(analysis)
                         .rawNewsText(rawNews)
                         .sourceType(sourceType)
+                        .expectedReasonCategory(reasonCategory)
                         .build()
         );
         return signalType;
+    }
+
+    /**
+     * Phase 8 — AI 출력 텍스트에서 판단 근거 카테고리를 키워드 기반으로 추론.
+     * 우선순위 순으로 검사하며, 해당 키워드가 발견되면 즉시 반환.
+     */
+    private String inferReasonCategory(String analysis, SignalType signalType) {
+        if (analysis == null) return "뉴스모멘텀";
+        // 1. 공시 관련
+        if (containsAny(analysis, "자사주", "수주", "공시", "CB", "BW", "유상증자", "전환사채", "신주인수권")) {
+            return signalType == SignalType.SELL ? "공시악재" : "공시호재";
+        }
+        // 2. 수급 관련
+        if (containsAny(analysis, "외국인", "기관", "수급", "순매수", "순매도", "거래량")) {
+            return "수급집중";
+        }
+        // 3. 실적 관련
+        if (containsAny(analysis, "영업이익", "실적", "매출", "EPS", "순이익", "어닝")) {
+            return "실적개선";
+        }
+        // 4. 저평가 관련
+        if (containsAny(analysis, "PER", "PBR", "저평가", "역사적 저점", "밸류에이션")) {
+            return "저평가해소";
+        }
+        // 5. 섹터 관련
+        if (containsAny(analysis, "섹터", "업종", "업황", "로테이션", "동종업계")) {
+            return "섹터모멘텀";
+        }
+        return "뉴스모멘텀";
+    }
+
+    private boolean containsAny(String text, String... keywords) {
+        for (String kw : keywords) {
+            if (text.contains(kw)) return true;
+        }
+        return false;
     }
 
     /**

@@ -349,8 +349,17 @@ AI가 과거 실수 패턴을 스스로 인식하게 만든다.
 
 ---
 
-## Phase 8 — 피드백 루프 (시그널 품질 자동 고도화)
-# Last Updated: 2026-05-13
+## Phase 8 — 피드백 루프 (시그널 품질 자동 고도화) ✅ 구현 완료 (2026-05-15)
+# Last Updated: 2026-05-15
+
+> **구현 범위**: RAG(Phase 7) 미구현으로 벡터 DB 메타데이터 업데이트는 생략.
+> 나머지 Alpha 추적·평가·실패 판정 루프 전체 구현 완료.
+>
+> **구현된 컴포넌트**:
+> - `SignalFeedback` 엔티티 (signal_feedback 테이블) — T+3/T+10/T+20 Alpha
+> - `AlphaEvaluationScheduler` — 매 거래일 18:00 자동 평가
+> - `FeedbackController` — /api/feedback/stats, /recent, /{reportId}
+> - `SignalReport.expectedReasonCategory` — 키워드 기반 판단 근거 카테고리 자동 저장
 
 ### 목표
 
@@ -490,3 +499,449 @@ ef_search: 40          # 검색 시 후보 수 (runtime 조정 가능)
 → 이중 전략: KOR 데이터 → BGE-M3, USA 뉴스 → text-embedding-3-small
 ```
 
+
+---
+
+## ════════════════════════════════════════════════════
+## 전체 확장 구조 — Core + Quant Signal Engine
+## ════════════════════════════════════════════════════
+
+```
+Jurine
+├── Core Analysis          (Phase 1~8)   ← 기존 로드맵 유지
+│   └── 사용자 관심 종목 AI 분석
+│       ├── KIS + DART 공식 데이터
+│       ├── RAG + Hybrid Search (Phase 7)
+│       └── 피드백 루프 + Self-Correction (Phase 8)
+│
+├── Quant Signal Engine    (Phase 9~11)  ← NEW — 독립 모듈
+│   └── 한국/미국 시총 TOP10 실시간 탐지
+│       ├── Feature Engineering + Scoring Engine
+│       ├── Market Regime Analysis + RAG 통합
+│       └── Alpha Tracking + 가중치 Self-Correction
+│
+└── 공유 인프라
+    ├── PGVector RAG (Phase 7 구축 → Phase 10에서 Quant도 활용)
+    ├── Feedback Loop (signal_feedback.feedback_source 필드로 Core/Quant 구분)
+    └── Telegram Bot (공통 알림)
+```
+
+> **Core와 Quant는 도메인을 완전히 분리한다.**
+> RAG(PGVector)와 Feedback Loop는 공유 인프라로 `source_module` 메타데이터 필드로 구분한다.
+
+---
+
+## Quant 전체 비교
+
+| 구분 | Core (Phase 1~8) | Quant Signal (Phase 9~11) |
+|---|---|---|
+| 분석 대상 | 사용자 관심 종목 | 시총 TOP20 (KOR 10 + USA 10) |
+| 판단 근거 | 뉴스 + 공시 + 기술지표 + RAG | 정량 Quant Score + RAG 보강 |
+| AI 역할 | 최종 판단 + 과거 사례 비교 | 해석/리포트 생성만 (선정은 Quant Score) |
+| 후보 선정 | 사용자가 등록한 종목 | Quant Scoring Engine → TOP3 자동 선별 |
+| 시그널 주기 | 온디맨드 + 모닝 배치 | 실시간 (장중) + 장전 브리핑 |
+| 데이터 | KIS + DART + 뉴스 | KIS 수급/거래량 + Alpha Vantage + 섹터 데이터 |
+
+---
+
+## ════════════════════════════════════════════════════
+## Phase 9~11 — Jurine Quant Signal Engine
+## "관심 종목 분석"에서 "시장 강자 실시간 탐지 플랫폼"으로 확장
+## ════════════════════════════════════════════════════
+
+### 핵심 철학
+
+> **LLM은 "해석 엔진"**, **Quant Scoring Engine은 "선정 엔진"**
+>
+> - **후보 선정**: Quant Scoring Engine이 정량 지표 기반으로 TOP3 자동 선별
+> - **AI 역할**: 이유 분석, 리스크 설명, 시장 해석, 최종 리포트 생성만 담당
+> - LLM이 "어떤 종목을 고를지"를 판단하지 않는다 — **숫자가 판단하고 LLM이 설명한다**
+
+### 분석 대상 유니버스
+
+| 시장 | 대상 | 선정 기준 |
+|---|---|---|
+| KOR | 시총 TOP 10 | KOSPI 시가총액 상위 10개 (삼성전자, SK하이닉스 등) |
+| USA | 시총 TOP 10 | S&P 500 시가총액 상위 10개 (AAPL, MSFT, NVDA 등) |
+| 합계 | 20개 대형주 | 고정 유니버스 (분기별 리밸런싱) |
+
+### 전체 데이터 파이프라인
+
+```
+실시간 데이터 수집 (KIS API + Alpha Vantage + News Crawler)
+        ↓
+Feature Engineering Layer  — 10개 핵심 지표 계산
+        ↓
+Quant Scoring Engine       — 가중 점수 산출 (0~100점)
+        ↓
+Risk Filtering Layer       — 선반영/하락장/유동성 필터
+        ↓
+Market Regime Analysis     — 시장 국면 판단
+        ↓
+상위 3개 후보 선별
+        ↓
+RAG 기반 유사 패턴 검색    — Phase 7 인프라 재활용 (source_module="quant")
+        ↓
+LLM 분석 (Groq)            — 해석 + 리스크 + 최종 리포트
+        ↓
+Quant Alert 발송           — 텔레그램 + API 응답
+```
+
+---
+
+## Phase 9 — [Quant] MVP: Feature Engineering + Scoring Engine
+# Last Updated: 2026-05-14
+
+> **의존성**: Phase 7 (RAG 인프라) 완료 후 착수 권장. Phase 5 KIS API는 필수 선행 조건 (완료됨 ✅).
+
+### 목표
+KOR/USA 시총 TOP20 대상으로 정량 점수를 산출하고, 상위 3개 후보를 AI가 해석하는 최소 동작 파이프라인을 완성한다.
+
+### 9-1. Feature Engineering Layer
+
+10개 핵심 Feature를 실시간으로 수집·계산한다.
+
+| Feature | 설명 | 데이터 소스 |
+|---|---|---|
+| `volume_ratio_5d` | 현재 거래량 / 5일 평균 거래량 (배수) | KIS API (이미 연동됨) |
+| `foreign_buy_velocity` | 외국인 순매수 가속도 (3일 변화율, %) | KIS API |
+| `institution_buy_velocity` | 기관 순매수 가속도 (3일 변화율, %) | KIS API |
+| `sector_strength_score` | 동일 섹터 평균 대비 종목 강도 (0~100) | KRX 섹터 데이터 |
+| `short_covering_score` | 공매도 잔고 감소율 — 숏커버링 가능성 (0~100) | KIS API / 금융위 |
+| `market_regime` | 시장 국면 (BULL / BEAR / SIDEWAYS) | 지수 + VIX 기반 |
+| `news_freshness_score` | 뉴스 신선도 점수 (최신 뉴스 가중치) | News Crawler |
+| `price_in_risk` | 선반영 리스크 (급등 이후 뉴스인지, 0~1) | 주가 + 뉴스 타임스탬프 |
+| `volume_acceleration` | 거래량 가속도 (분봉 증가 기울기) | KIS 실시간 |
+| `price_momentum_15m` | 15분 단위 가격 모멘텀 (%) | KIS 실시간 |
+
+```java
+// Feature Engineering 인터페이스 (전략 패턴 — OCP 준수, Core의 NewsPort 패턴과 동일 원칙)
+public interface QuantFeatureCalculator {
+    QuantFeatureResult calculate(String ticker, MarketType market);
+    FeatureType getFeatureType();
+}
+
+// 구현체 예시
+VolumeRatio5dCalculator        // volume_ratio_5d  (KIS API 재활용)
+ForeignBuyVelocityCalculator   // foreign_buy_velocity
+MarketRegimeAnalyzer           // market_regime
+```
+
+### 9-2. Quant Scoring Engine
+
+Feature 값에 가중치를 부여하여 0~100점 종합 Quant Score를 산출한다.
+
+```java
+public record QuantScore(
+    String ticker,
+    double totalScore,                    // 0 ~ 100
+    Map<String, Double> featureScores,
+    String marketRegime,
+    LocalDateTime calculatedAt
+) {}
+```
+
+**가중치 (MVP 기본값 — Phase 11에서 데이터 기반 자동 조정)**:
+
+| Feature | 가중치 |
+|---|---|
+| volume_ratio_5d | 20% |
+| foreign_buy_velocity | 18% |
+| institution_buy_velocity | 15% |
+| price_momentum_15m | 12% |
+| volume_acceleration | 10% |
+| sector_strength_score | 10% |
+| short_covering_score | 8% |
+| news_freshness_score | 5% |
+| price_in_risk | -2% (패널티) |
+| market_regime | 보정 계수 적용 |
+
+### 9-3. Risk Filtering Layer
+
+Quant Score가 높아도 다음 조건에 해당하면 후보에서 제외한다.
+
+```yaml
+risk_filters:
+  - name: 선반영 필터
+    condition: price_in_risk > 0.7 AND 최근_3일_상승률 > 15%
+    action: EXCLUDE
+
+  - name: 하락장 필터
+    condition: market_regime == BEAR AND sector_strength_score < 40
+    action: EXCLUDE
+
+  - name: 거래정지 필터
+    condition: 거래정지 or 관리종목
+    action: EXCLUDE
+
+  - name: 유동성 필터
+    condition: volume_ratio_5d < 0.5
+    action: EXCLUDE
+```
+
+### 9-4. 데이터 모델 (신규 테이블)
+
+```
+[quant_signal]                             -- Quant 시그널 결과 (TOP3)
+- id                BIGINT PK
+- ticker            VARCHAR(20)
+- stock_name        VARCHAR(100)
+- market_type       VARCHAR(10)            -- KOR | USA
+- total_score       DECIMAL(5,2)           -- 0~100
+- signal_rank       INT                   -- 1~3
+- market_regime     VARCHAR(20)            -- STRONG_BULL | BULL | SIDEWAYS | BEAR | CRISIS
+- llm_report        TEXT                   -- AI 해석 리포트
+- disclaimer        TEXT                   -- 면책 문구 (필수)
+- signal_date       DATE
++ BaseEntity 상속 (createdAt, updatedAt, deleted, deletedAt)
+
+[quant_feature_snapshot]                   -- Feature 값 스냅샷
+- id                        BIGINT PK
+- quant_signal_id           BIGINT FK → quant_signal
+- volume_ratio_5d           DECIMAL(6,2)
+- foreign_buy_velocity      DECIMAL(6,2)
+- institution_buy_velocity  DECIMAL(6,2)
+- sector_strength_score     DECIMAL(5,2)
+- short_covering_score      DECIMAL(5,2)
+- news_freshness_score      DECIMAL(5,2)
+- price_in_risk             DECIMAL(5,2)
+- volume_acceleration       DECIMAL(6,2)
+- price_momentum_15m        DECIMAL(6,2)
+- raw_feature_json          TEXT           -- 원시값 전체 JSON (디버깅용)
+- snapshot_at               TIMESTAMP
+
+[quant_universe]                           -- 분석 대상 유니버스 (KOR+USA TOP20)
+- id                BIGINT PK
+- ticker            VARCHAR(20)
+- stock_name        VARCHAR(100)
+- market_type       VARCHAR(10)
+- market_cap_rank   INT                   -- 1~10
+- sector            VARCHAR(50)
+- active            BOOLEAN DEFAULT true
+- added_at          DATE
+- removed_at        DATE (nullable)
+```
+
+### 9-5. MVP API 엔드포인트
+
+```
+GET  /api/quant/top-signals          # 오늘의 TOP3 Quant 시그널 조회
+GET  /api/quant/scores               # 전체 유니버스 Quant Score 목록
+GET  /api/quant/scores/{ticker}      # 특정 종목 Quant Score 상세 (Feature 값 포함)
+GET  /api/quant/universe             # 현재 분석 유니버스 목록 조회
+GET  /api/quant/regime               # 현재 시장 국면(Market Regime) 조회
+```
+
+### 9-6. Alpha Vantage 추가 연동
+
+```yaml
+# application.yml 추가
+alpha-vantage:
+  api-key: ${ALPHA_VANTAGE_API_KEY}
+  base-url: https://www.alphavantage.co/query
+```
+
+```java
+// 신규 Port (기존 StockPricePort와 독립)
+public interface QuantDataPort {
+    VolumeData fetchVolumeData(String ticker, MarketType market);
+    InstitutionalFlowData fetchInstitutionalFlow(String ticker);
+    ShortData fetchShortData(String ticker);
+}
+
+// 구현체
+KisQuantDataAdapter          // KOR (KIS API — 기존 KisTokenManager 재활용)
+AlphaVantageQuantAdapter     // USA (Alpha Vantage)
+```
+
+---
+
+## Phase 10 — [Quant] Market Regime + RAG 통합
+
+### 목표
+시장 국면을 정교하게 분석하고, Phase 7에서 구축한 RAG 인프라와 Quant를 연결한다.
+
+### 10-1. Market Regime Analysis
+
+```java
+public enum MarketRegime {
+    STRONG_BULL,   // 강세장 (지수 +2% 이상, VIX 낮음)
+    BULL,          // 상승장
+    SIDEWAYS,      // 횡보
+    BEAR,          // 하락장
+    CRISIS         // 폭락장 (VIX 30 이상) → Quant 시그널 중지
+}
+```
+
+| Regime | Quant 전략 | 가중치 조정 |
+|---|---|---|
+| STRONG_BULL | 모멘텀 추종 | volume_acceleration, momentum 가중치 ↑ |
+| BULL | 기본 전략 | 기본값 유지 |
+| SIDEWAYS | 수급 중심 | foreign_buy_velocity, institution ↑ |
+| BEAR | 방어적 | risk_filter 강화, price_in_risk 패널티 ↑ |
+| CRISIS | 시그널 중지 | 전체 유니버스 시그널 발송 중단 |
+
+### 10-2. Time-Series Momentum Analysis
+
+```java
+public record MomentumResult(
+    String ticker,
+    double momentum_5m,   // 5분 모멘텀
+    double momentum_15m,  // 15분 모멘텀 (핵심 지표)
+    double momentum_60m,  // 60분 모멘텀
+    TrendDirection trend  // UP | DOWN | FLAT
+) {}
+```
+
+### 10-3. RAG 통합 — Phase 7 인프라 재활용
+
+Phase 7에서 구축한 PGVector + Hybrid Search를 Quant에 연결한다.
+`source_module: "quant"` 메타데이터 필터로 Core RAG와 완전히 분리.
+
+```java
+// Quant 패턴 벡터 저장 (Phase 7의 vectorStore 재활용)
+vectorStore.add(List.of(
+    new Document(featurePatternText, Map.of(
+        "source_module",   "quant",          // ← Core와 구분하는 핵심 필터
+        "ticker",          "005930",
+        "sector",          "semiconductor",
+        "signal_rank",     "1",
+        "alpha_7d",        "+9.2",
+        "is_failure",      "false",          // Phase 7 Negative Sampling 패턴 동일 적용
+        "market_regime",   "BULL"
+    ))
+));
+
+// Quant 유사 패턴 검색
+List<Document> results = vectorStore.similaritySearch(
+    SearchRequest.query(currentFeatureText)
+        .withTopK(3)
+        .withFilterExpression("source_module == 'quant' AND sector == 'semiconductor'")
+);
+```
+
+**Quant 전용 RAG 데이터 종류**:
+
+| 데이터 | 설명 | Phase 7 연계 |
+|---|---|---|
+| 과거 급등 패턴 | Feature 조합 + 실제 결과 (Positive) | is_failure=false |
+| 실패한 BUY 패턴 | 선반영, 허매수 등 Negative 사례 | is_failure=true |
+| 외인 수급 성공/실패 | 외인 매수 → 실제 등락 결과 | alpha_7d 메타데이터 |
+| 공시 급등 패턴 | DART 공시 유형 + 실제 반응 | Phase 7 dart 타입 연계 |
+
+### 10-4. Price-In Detection (선반영 탐지)
+
+```
+뉴스 발생 타임스탬프 vs 주가 급등 타임스탬프 비교
+→ 주가가 뉴스보다 먼저 움직인 경우: price_in_risk 높음
+→ Quant Score 차감 + RAG에 "선반영 패턴 (Negative)" 저장
+→ 다음 유사 패턴에서 자동 경고
+```
+
+---
+
+## Phase 11 — [Quant] Feedback Loop + Alpha Tracking + Self-Correction
+
+### 목표
+Quant 시그널 정확도를 추적하고, Phase 8의 Feedback Loop 설계를 Quant에 확장 적용한다.
+
+### 11-1. Quant Alpha Tracking
+
+Phase 8의 `signal_feedback` 테이블 설계를 그대로 확장 활용한다.
+
+```
+[quant_alpha_result]                       -- Phase 8 signal_feedback과 동일 구조
+- id               BIGINT PK
+- quant_signal_id  BIGINT FK → quant_signal
+- price_at_signal  DECIMAL(12,2)
+- price_after_3d   DECIMAL(12,2)
+- price_after_10d  DECIMAL(12,2)
+- price_after_20d  DECIMAL(12,2)
+- price_mdd        DECIMAL(12,2)           -- 기간 내 최저가
+- alpha_3d         DECIMAL(6,2)
+- alpha_10d        DECIMAL(6,2)            -- Primary 평가 지표
+- alpha_20d        DECIMAL(6,2)
+- mdd_pct          DECIMAL(6,2)
+- benchmark_return DECIMAL(6,2)            -- KOR: KOSPI / USA: S&P500
+- was_successful   BOOLEAN                 -- alpha_10d > 0
+- is_failure       BOOLEAN                 -- alpha_10d < -5%
+- rag_updated      BOOLEAN DEFAULT false
+- evaluated_at     TIMESTAMP
+```
+
+스케줄러: Phase 8과 동일하게 T+3 / T+10 / T+20 영업일 후 자동 수집.
+
+### 11-2. 가중치 Self-Correction
+
+```java
+// 월별 가중치 재조정 (50회 이상 누적 데이터 기반)
+public interface WeightOptimizer {
+    Map<FeatureType, Double> optimize(List<QuantAlphaResult> history);
+}
+```
+
+- 성공 시그널에서 높게 기여한 Feature → 가중치 소폭 증가
+- 실패 시그널에서 높게 기여한 Feature → 가중치 소폭 감소
+- **50회 미만**: 수동 설정값 유지 / **50회 이상**: 자동 최적화 활성화
+
+### 11-3. Quant Alert System
+
+```yaml
+alert_conditions:
+  - name: 실시간 급등 경보
+    trigger: volume_ratio_5d > 3.0 AND price_momentum_15m > 2%
+    channel: Telegram
+    priority: HIGH
+
+  - name: 외인 대량 매수 경보
+    trigger: foreign_buy_velocity > 2.0  # 전일 대비 2배 이상
+    channel: Telegram
+    priority: HIGH
+
+  - name: 장전 TOP3 브리핑
+    trigger: cron("30 8 * * MON-FRI")   # 매 거래일 08:30
+    channel: Telegram
+    priority: NORMAL
+
+  - name: 숏커버링 포착
+    trigger: short_covering_score > 80
+    channel: Telegram
+    priority: HIGH
+```
+
+---
+
+## 활용 시나리오 (Quant)
+
+### ① 장중 실시간 급등 탐지
+```
+09:30 장 개시
+→ KIS API 거래량 수집 (기존 KisTokenManager 재활용)
+→ volume_ratio_5d = 4.2 감지 (삼성전자)
+→ foreign_buy_velocity = STRONG (외인 대규모 유입)
+→ Quant Score: 87점 / 시장 1위
+→ Risk Filter 통과 (price_in_risk 낮음)
+→ RAG 검색: "2024-11 유사 패턴 → D+10 Alpha +9.2%" (source_module=quant)
+→ LLM: "외인 수급 + 거래량 급증. 선반영 리스크 낮음. 단기 모멘텀 유효."
+→ 텔레그램 알림 발송
+```
+
+### ② 선반영 패턴 자동 차단
+```
+뉴스: "XX 바이오 FDA 승인 소식"
+→ 주가 이미 3일 전부터 +18% 상승
+→ price_in_risk = 0.91 (선반영 고위험)
+→ Risk Filter: EXCLUDE
+→ Quant 후보에서 제외 (긍정 뉴스에도 시그널 미발생)
+→ RAG에 "선반영 패턴 (Negative)" 저장 → 다음 유사 케이스에 경고
+```
+
+### ③ 섹터 로테이션 감지
+```
+반도체 섹터 전체 volume_ratio_5d 급등
+→ sector_strength_score 상위 반도체 종목 특정
+→ market_regime = BULL → 기본 가중치 유지
+→ Quant Score 계산 → TOP3 선별
+→ RAG: "섹터 로테이션 유사 패턴 → 평균 D+10 Alpha +7.3%" 삽입
+→ LLM 리포트 + 텔레그램 발송
+```
