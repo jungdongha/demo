@@ -39,4 +39,8 @@ public class SignalReport extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private SourceType sourceType;
+
+    // Phase 8 — 판단 근거 카테고리 (실적개선 | 공시호재 | 수급집중 | 저평가해소 | 섹터모멘텀 | 뉴스모멘텀)
+    @Column(length = 50)
+    private String expectedReasonCategory;
 }

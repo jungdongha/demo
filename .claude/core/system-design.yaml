@@ -111,6 +111,10 @@ api:
       - "GET /api/stock/analyze/{ticker}           # SSE 스트리밍 온디맨드 분석"
       - "GET /api/reports/today                    # 오늘 배치 시그널 목록"
       - "GET /api/reports/{stockId}/history        # 종목별 시그널 히스토리"
+    feedback:
+      - "GET /api/feedback/stats                   # 카테고리별 Alpha 통계 (Phase 8)"
+      - "GET /api/feedback/recent                  # 최근 피드백 이력 조회 (기본 30건)"
+      - "GET /api/feedback/{reportId}              # 특정 시그널 피드백 조회"
     portfolio:
       - "POST   /api/portfolio                     # 보유 종목 등록"
       - "GET    /api/portfolio                     # 보유 종목 목록 + 수익률"
@@ -144,3 +148,85 @@ entity:
     - Soft Delete required -> NEVER use deleteById(). Call entity.softDelete() then save()
     - No equals/hashCode override
     - No toDto() inside Entity
+
+# ─────────────────────────────────────────────────────────────────
+# Quant Signal Engine — 아키텍처 확장 (Phase 9~11)
+# ─────────────────────────────────────────────────────────────────
+quant_module:
+  description: >
+    Jurine Quant Signal Engine — Core와 완전히 분리된 독립 모듈.
+    시총 TOP20 (KOR 10 + USA 10) 대상 실시간 정량 분석.
+  philosophy: >
+    LLM은 "해석 엔진"만 담당, "선정 엔진"은 Quant Scoring Engine.
+    숫자가 판단하고 LLM이 설명한다.
+
+  module_separation:
+    core:
+      base_package: com.obigo.demodong.domain
+      domains: [signal, portfolio, price, stock, telegram]
+      description: 사용자 관심 종목 기반 AI 분석 (Phase 1~8)
+    quant:
+      base_package: com.obigo.demodong.domain.quant
+      domains: [QuantSignal, QuantFeatureSnapshot, QuantAlphaResult, QuantUniverse]
+      description: 시총 TOP20 실시간 Quant Signal (Phase 9~11)
+    shared_infra:
+      components:
+        - PGVector RAG      # source_module="core"|"quant" 메타데이터로 구분
+        - FeedbackLoop      # signal_feedback.feedback_source 필드로 구분
+        - TelegramBot       # 공통 알림 채널
+      constraint: "KisTokenManager는 Quant에서 재활용 가능 (Spring Bean 공유)"
+
+  cross_module_constraint:
+    - "NO Cross-Module Dependency: Core 도메인과 Quant 도메인은 서로 직접 의존하지 않는다."
+    - "공유 인프라(RAG, Feedback, Telegram)만 양쪽에서 사용 가능."
+    - "QuantDataPort ≠ StockPricePort — 독립 인터페이스 유지, 혼용 금지."
+
+  quant_layers:
+    feature_engineering:
+      description: 10개 핵심 Feature 실시간 계산
+      pattern: "Strategy (QuantFeatureCalculator interface — OCP 준수)"
+      implementations: [VolumeRatio5dCalculator, ForeignBuyVelocityCalculator, MarketRegimeAnalyzer, ...]
+    scoring_engine:
+      description: Feature 가중치 합산 → Quant Score (0~100)
+      class: QuantScoringService
+    risk_filter:
+      description: 선반영/하락장/유동성 필터링
+      class: RiskFilterService
+    market_regime:
+      description: 지수 + VIX 기반 시장 국면 판단
+      enum: [STRONG_BULL, BULL, SIDEWAYS, BEAR, CRISIS]
+      class: MarketRegimeService
+    rag_integration:
+      description: Phase 7 PGVector 재활용 (source_module="quant" 필터)
+      port: QuantRagPort
+
+  quant_ports:
+    QuantDataPort:
+      implementations:
+        - KisQuantDataAdapter      # KOR (KIS API — KisTokenManager 재활용)
+        - AlphaVantageQuantAdapter # USA (Alpha Vantage)
+    QuantRagPort:
+      note: Phase 7 vectorStore 재활용, source_module 메타데이터로 분리
+
+  quant_api_endpoints:
+    base: /api/quant
+    endpoints:
+      - "GET /api/quant/top-signals          # 오늘의 TOP3 Quant 시그널 조회"
+      - "GET /api/quant/scores               # 전체 유니버스 Quant Score 목록"
+      - "GET /api/quant/scores/{ticker}      # 특정 종목 Quant Score 상세 (Feature 값 포함)"
+      - "GET /api/quant/universe             # 현재 분석 유니버스 목록 조회"
+      - "GET /api/quant/regime               # 현재 시장 국면(Market Regime) 조회"
+      - "GET /api/quant/history/{ticker}     # 종목별 Quant 시그널 이력 조회"
+    error_codes: 405xx
+    detail:
+      40501: QUANT_SIGNAL_NOT_FOUND
+      40502: QUANT_UNIVERSE_EMPTY
+      40503: MARKET_REGIME_CRISIS
+      40504: QUANT_DATA_FETCH_FAILED
+      40505: QUANT_SCORE_CALC_FAILED
+
+  alpha_vantage_integration:
+    api-key: ${ALPHA_VANTAGE_API_KEY}
+    base-url: https://www.alphavantage.co/query
+    use_case: USA 기술지표 (RSI, MACD, 거래량)
+    note: KOR 데이터는 기존 KIS API 활용

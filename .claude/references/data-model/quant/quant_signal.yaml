@@ -1,0 +1,315 @@
+# Quant Signal Domain — Data Model
+# Module: Jurine Quant Signal Engine (Phase 9~11)
+# Last Updated: 2026-05-14
+# 기존 Core 도메인(signal, portfolio, price, stock)과 완전히 분리된 독립 도메인
+# 패키지: com.obigo.demodong.domain.quant
+
+entities:
+
+  # ─────────────────────────────────────────
+  # 1. QuantSignal — Quant 시그널 최종 결과
+  # ─────────────────────────────────────────
+  QuantSignal:
+    table: quant_signal
+    extends: BaseEntity
+    description: >
+      Quant Scoring Engine이 선정한 TOP3 종목의 최종 시그널 결과.
+      LLM 리포트는 해석 목적으로만 첨부되며, 추천 선정은 total_score가 결정한다.
+    fields:
+      ticker:
+        type: VARCHAR(20)
+        nullable: false
+      stock_name:
+        type: VARCHAR(100)
+        nullable: false
+      market_type:
+        type: ENUM
+        values: [KOR, USA]
+        column: "VARCHAR(10) @Enumerated(STRING)"
+        nullable: false
+      total_score:
+        type: "DECIMAL(5,2)"
+        nullable: false
+        description: Quant Score 합산 (0.00 ~ 100.00)
+      signal_rank:
+        type: INT
+        nullable: false
+        description: 당일 순위 (1~3, TOP3만 저장)
+      market_regime:
+        type: ENUM
+        values: [STRONG_BULL, BULL, SIDEWAYS, BEAR, CRISIS]
+        column: "VARCHAR(20) @Enumerated(STRING)"
+        nullable: false
+      llm_report:
+        type: TEXT
+        nullable: true
+        description: LLM이 생성한 해석 리포트 (선정 이유 설명 목적, 추천 근거 아님)
+      disclaimer:
+        type: TEXT
+        nullable: false
+        description: "면책 문구 (필수) — 모든 시그널 응답 마지막에 포함"
+      signal_date:
+        type: DATE
+        nullable: false
+        description: 시그널 생성 날짜
+    factory_method: "QuantSignal.create(ticker, stockName, marketType, totalScore, rank, regime, signalDate)"
+    domain_methods:
+      - "updateLlmReport(String report)  # AI 리포트 비동기 업데이트"
+    indexes:
+      - "[signal_date, signal_rank]  # 당일 TOP3 조회"
+      - "[ticker, signal_date]       # 종목별 이력 조회"
+    relations:
+      - "QuantFeatureSnapshot: OneToOne (cascade: ALL)"
+      - "QuantAlphaResult: OneToOne (cascade: PERSIST, nullable)"
+
+  # ─────────────────────────────────────────
+  # 2. QuantFeatureSnapshot — Feature 값 스냅샷
+  # ─────────────────────────────────────────
+  QuantFeatureSnapshot:
+    table: quant_feature_snapshot
+    extends: BaseEntity
+    description: >
+      Quant Score 산출 시점의 10개 Feature 값을 보존한다.
+      Phase 11 Self-Correction 가중치 조정 및 RAG Negative/Positive 학습 데이터로 활용.
+    fields:
+      quant_signal_id:
+        type: "BIGINT FK → quant_signal"
+        nullable: false
+      volume_ratio_5d:
+        type: "DECIMAL(6,2)"
+        description: 현재 거래량 / 5일 평균 거래량 (배수)
+      foreign_buy_velocity:
+        type: "DECIMAL(6,2)"
+        description: 외국인 순매수 가속도 (3일 변화율, %)
+      institution_buy_velocity:
+        type: "DECIMAL(6,2)"
+        description: 기관 순매수 가속도 (3일 변화율, %)
+      sector_strength_score:
+        type: "DECIMAL(5,2)"
+        description: 섹터 평균 대비 종목 강도 (0~100)
+      short_covering_score:
+        type: "DECIMAL(5,2)"
+        description: 숏커버링 가능성 점수 (0~100)
+      news_freshness_score:
+        type: "DECIMAL(5,2)"
+        description: 뉴스 신선도 가중치 점수 (0~100)
+      price_in_risk:
+        type: "DECIMAL(5,2)"
+        description: 선반영 리스크 점수 (0~1, 높을수록 위험)
+      volume_acceleration:
+        type: "DECIMAL(6,2)"
+        description: 거래량 가속도 (분봉 기울기)
+      price_momentum_15m:
+        type: "DECIMAL(6,2)"
+        description: 15분 가격 모멘텀 (%)
+      raw_feature_json:
+        type: TEXT
+        nullable: true
+        description: 전체 Feature 원시값 JSON (디버깅용)
+      snapshot_at:
+        type: TIMESTAMP
+        nullable: false
+        description: Feature 수집 시각
+
+  # ─────────────────────────────────────────
+  # 3. QuantAlphaResult — Alpha 추적 결과
+  # ─────────────────────────────────────────
+  QuantAlphaResult:
+    table: quant_alpha_result
+    extends: BaseEntity
+    description: >
+      Quant 시그널 이후 T+3, T+10, T+20 실제 주가 변동을 추적한다.
+      Phase 8 signal_feedback과 동일한 다중 타임프레임 구조 적용.
+      Self-Correction 가중치 조정 및 RAG Positive/Negative 갱신에 활용.
+    fields:
+      quant_signal_id:
+        type: "BIGINT FK → quant_signal"
+        nullable: false
+      price_at_signal:
+        type: "DECIMAL(12,2)"
+        description: 시그널 생성 시점 주가
+      price_after_3d:
+        type: "DECIMAL(12,2)"
+        nullable: true
+      price_after_10d:
+        type: "DECIMAL(12,2)"
+        nullable: true
+      price_after_20d:
+        type: "DECIMAL(12,2)"
+        nullable: true
+      price_mdd:
+        type: "DECIMAL(12,2)"
+        nullable: true
+        description: 기간 내 최저가 (MDD 계산용)
+      alpha_3d:
+        type: "DECIMAL(6,2)"
+        nullable: true
+        description: T+3 Alpha (실제 수익률 - 지수 수익률, %)
+      alpha_10d:
+        type: "DECIMAL(6,2)"
+        nullable: true
+        description: T+10 Alpha (%) — Primary 평가 지표
+      alpha_20d:
+        type: "DECIMAL(6,2)"
+        nullable: true
+        description: T+20 Alpha (%)
+      mdd_pct:
+        type: "DECIMAL(6,2)"
+        nullable: true
+        description: 최대 낙폭 %
+      benchmark_return:
+        type: "DECIMAL(6,2)"
+        nullable: true
+        description: "벤치마크 지수 수익률 (KOR: KOSPI / USA: S&P500, %)"
+      was_successful:
+        type: BOOLEAN
+        nullable: true
+        description: alpha_10d > 0 이면 true
+      is_failure:
+        type: BOOLEAN
+        nullable: true
+        description: "alpha_10d < -5% → Negative Sampling 대상 (Phase 8 패턴 동일)"
+      rag_updated:
+        type: "BOOLEAN DEFAULT false"
+        description: RAG Positive/Negative 케이스 업데이트 완료 여부
+      evaluated_at:
+        type: TIMESTAMP
+        nullable: true
+        description: T+10 이후 배치에서 설정
+    domain_methods:
+      - "evaluate(BigDecimal price10d, BigDecimal benchmarkReturn)  # alpha_10d 계산 + was_successful/is_failure 결정"
+      - "markRagUpdated()  # RAG 갱신 완료 처리"
+
+  # ─────────────────────────────────────────
+  # 4. QuantUniverse — 분석 대상 유니버스
+  # ─────────────────────────────────────────
+  QuantUniverse:
+    table: quant_universe
+    extends: BaseEntity
+    description: >
+      Quant Signal Engine이 분석하는 고정 유니버스 (KOR TOP10 + USA TOP10 = 20개).
+      분기별 리밸런싱. active=true인 종목만 분석 대상.
+    fields:
+      ticker:
+        type: VARCHAR(20)
+        nullable: false
+      stock_name:
+        type: VARCHAR(100)
+        nullable: false
+      market_type:
+        type: ENUM
+        values: [KOR, USA]
+        column: "VARCHAR(10) @Enumerated(STRING)"
+      market_cap_rank:
+        type: INT
+        description: 시총 순위 (1~10)
+      sector:
+        type: VARCHAR(50)
+        description: 섹터명 (반도체, 금융, 소비재 등)
+      active:
+        type: "BOOLEAN DEFAULT true"
+        description: 현재 분석 대상 여부 (리밸런싱 시 변경)
+      added_at:
+        type: DATE
+      removed_at:
+        type: DATE
+        nullable: true
+        description: 유니버스 제외일
+
+# ─────────────────────────────────────────
+# 도메인 서비스 인터페이스
+# ─────────────────────────────────────────
+domain_services:
+
+  QuantScoringService:
+    description: Feature 값을 받아 Quant Score를 산출하고 TOP3를 선별한다
+    package: com.obigo.demodong.domain.quant.service
+    methods:
+      - "score(List<QuantFeatureResult> features): List<QuantScore>"
+      - "applyRiskFilter(List<QuantScore> scores, MarketRegime regime): List<QuantScore>"
+      - "selectTop3(List<QuantScore> filtered): List<QuantScore>"
+
+  MarketRegimeService:
+    description: 지수 데이터와 VIX를 기반으로 현재 시장 국면을 판단한다
+    package: com.obigo.demodong.domain.quant.service
+    methods:
+      - "analyze(MarketType market): MarketRegime"
+      - "adjustWeights(MarketRegime regime): Map<FeatureType, Double>"
+
+  QuantAlphaEvaluationService:
+    description: T+10 주가를 수집하여 Alpha를 계산하고 Self-Correction을 트리거한다
+    package: com.obigo.demodong.domain.quant.service
+    methods:
+      - "evaluate(Long quantSignalId): QuantAlphaResult"
+      - "updateRagKnowledge(QuantAlphaResult result): void  # is_failure 기반 RAG 갱신"
+
+# ─────────────────────────────────────────
+# 외부 인터페이스 (Port — DIP 준수)
+# ─────────────────────────────────────────
+ports:
+  QuantDataPort:
+    description: 실시간 수급/거래량 데이터 수집 인터페이스 (Core의 StockPricePort와 독립)
+    package: com.obigo.demodong.domain.quant.port
+    implementations:
+      KisQuantDataAdapter:
+        package: com.obigo.demodong.external.quant
+        note: KOR 전용. KisTokenManager 재활용 가능
+      AlphaVantageQuantAdapter:
+        package: com.obigo.demodong.external.quant
+        note: USA 전용. Alpha Vantage API
+    methods:
+      - "fetchVolumeData(String ticker, MarketType market): VolumeData"
+      - "fetchInstitutionalFlow(String ticker): InstitutionalFlowData"
+      - "fetchShortData(String ticker): ShortData"
+
+  QuantRagPort:
+    description: Phase 7 PGVector 인프라를 Quant용으로 활용하는 인터페이스
+    package: com.obigo.demodong.domain.quant.port
+    note: 내부적으로 Phase 7의 RagService를 사용. source_module="quant" 필터 자동 적용.
+    methods:
+      - "searchSimilarPattern(QuantFeatureSnapshot snapshot): List<RagDocument>"
+      - "savePositiveCase(QuantAlphaResult result): void"
+      - "saveNegativeCase(QuantAlphaResult result): void"
+
+# ─────────────────────────────────────────
+# 패키지 구조
+# ─────────────────────────────────────────
+package_structure:
+  domain: com.obigo.demodong.domain.quant
+  sub:
+    - "entity/     — QuantSignal, QuantFeatureSnapshot, QuantAlphaResult, QuantUniverse"
+    - "service/    — QuantScoringService, MarketRegimeService, QuantAlphaEvaluationService"
+    - "port/       — QuantDataPort, QuantRagPort (인터페이스)"
+  usecase: com.obigo.demodong.usecase.quant
+  sub_usecase:
+    - "QuantSignalUseCase   — TOP3 조회, Score 조회, 유니버스 조회"
+    - "QuantBatchUseCase    — 장중 배치, 장전 브리핑"
+  external: com.obigo.demedong.external.quant
+  sub_external:
+    - "KisQuantDataAdapter"
+    - "AlphaVantageQuantAdapter"
+  presentation: com.obigo.demodong.presentation.quant
+  sub_presentation:
+    - "QuantController  — /api/quant/**"
+
+# ─────────────────────────────────────────
+# API 에러코드
+# ─────────────────────────────────────────
+error_codes:
+  domain: quant
+  range: 405xx
+  codes:
+    40501: QUANT_SIGNAL_NOT_FOUND
+    40502: QUANT_UNIVERSE_EMPTY
+    40503: MARKET_REGIME_CRISIS      # CRISIS 국면에서 시그널 요청 불가
+    40504: QUANT_DATA_FETCH_FAILED   # KIS/Alpha Vantage 수집 실패
+    40505: QUANT_SCORE_CALC_FAILED   # Scoring Engine 오류
+
+# ─────────────────────────────────────────
+# Cross-Module 규칙
+# ─────────────────────────────────────────
+cross_module_rules:
+  - "Core 도메인(domain/signal, domain/portfolio 등)과 Quant 도메인(domain/quant)은 서로 직접 의존하지 않는다."
+  - "공유 인프라(PGVector RAG, Telegram Bot)는 source_module 메타데이터로 구분하여 공용 사용."
+  - "KisTokenManager는 Quant에서도 재활용 가능 (Spring Bean 공유)."
+  - "QuantDataPort는 StockPricePort와 독립 인터페이스로 유지. 혼용 금지."
