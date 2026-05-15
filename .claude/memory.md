@@ -3,8 +3,8 @@
 
 ## 현재 상태
 
-phase: Phase 8 구현 완료 (Phase 6 보류, Phase 7 RAG 스킵)
-branch: feature/quant
+phase: Phase 9 구현 완료 (Phase 6 보류, Phase 7 RAG 스킵)
+branch: feature/phase9
 base_package: com.obigo.demodong
 
 ## 완료된 도메인
@@ -18,6 +18,30 @@ base_package: com.obigo.demodong
 | telegram | domain/telegram | 구현 중 (봇 알림) |
 
 ## 주요 변경 이력
+
+- 2026-05-15: **Phase 9 Quant Signal Engine MVP 구현** (branch: feature/phase9)
+  - [신규] `QuantUniverse` 엔티티 — 분석 대상 유니버스 (quant_universe 테이블, KOR+USA TOP20)
+  - [신규] `QuantSignal` 엔티티 — TOP3 시그널 결과 (quant_signal 테이블)
+  - [신규] `QuantFeatureSnapshot` 엔티티 — Feature 값 스냅샷 (quant_feature_snapshot 테이블)
+  - [신규] `QuantFeatureCalculator` 인터페이스 (Strategy Pattern) + 4개 MVP 구현체
+    - `VolumeRatio5dCalculator` — 거래량 배수 (5일 평균 대비, 가중치 35%)
+    - `PriceMomentum5dCalculator` — 5일 가격 모멘텀 % (가중치 30%)
+    - `NewsFreshnessCalculator` — 뉴스 신선도 점수 0~100 (가중치 20%)
+    - `MarketRegimeScoreCalculator` — 시장 국면 보정 계수 -10~+10
+  - [신규] `MarketRegimeService` — 지수 5일 변동률 기반 국면 판단 (STRONG_BULL/BULL/SIDEWAYS/BEAR/CRISIS)
+  - [신규] `QuantScoringService` — 가중치 합산 → 0~100점 Quant Score 산출 + TOP3 선별
+  - [신규] `RiskFilterService` — 유동성/급등선반영/하락장 3개 필터
+  - [신규] `QuantDataPort` + `KisQuantDataAdapter` — KOR 일별 시세 + KOSPI 지수 조회 (KisTokenManager 재활용)
+  - [신규] `QuantNewsPort` + `QuantNewsCrawlerAdapter` — 기존 NewsCrawlerStrategy Wrapper (Module Guard 준수)
+  - [신규] `QuantEngineUseCase` — 배치 실행 (Feature 수집 → Score → Filter → TOP3 → LLM 리포트 → 저장)
+  - [신규] `QuantSignalUseCase` — 조회 Facade (5개 API)
+  - [신규] `QuantController` — `/api/quant/top-signals`, `/scores`, `/scores/{ticker}`, `/universe`, `/regime`
+  - [신규] `QuantSignalScheduler` — KOR 09:10 / USA 22:30 일배치
+  - [신규] `QuantUniverseInitializer` — @PostConstruct KOR10+USA10 초기 데이터 삽입
+  - [신규] `QuantErrorCode` (405xx), `QuantResponseCode`
+  - [수정] `application.yaml` — `alpha-vantage` 설정 추가 (MVP: Stub, Phase 10에서 실제 연동)
+  - 패키지: Core 패턴 준수 — `domain.quant.*` (quant_signal.yaml의 분리 구조 대신 일관성 우선)
+  - 테스트: `QuantScoringServiceTest` 8개 케이스 (Score 계산, Risk Filter, TOP3 선별) — 8/8 PASS
 
 - 2026-05-15: **Phase 8 피드백 루프 구현** (Phase 6 설계 보류, Phase 7 RAG 스킵)
   - [신규] `SignalFeedback` 엔티티 — T+3/T+10/T+20 Alpha 추적 테이블 (signal_feedback)
@@ -117,8 +141,20 @@ corporate_disclosure: DART API (KOR 종목 공시)
 - [x] AlphaEvaluationScheduler — T+3/T+10/T+20 RAW 수익률 자동 평가
 - [x] FeedbackController — /api/feedback/stats, /recent, /{reportId}
 
-### Phase 9 ~ (대기)
-- [ ] Quant Signal Engine MVP (Phase 9 — RAG 인프라 없으면 9-1~9-3만 착수 가능)
+### Phase 9 ✅ 완료 (2026-05-15)
+- [x] Feature Engineering Layer (4개 MVP: volume_ratio_5d, price_momentum_5d, news_freshness, market_regime)
+- [x] Quant Scoring Engine (가중치 합산 0~100점)
+- [x] Risk Filtering (유동성/선반영/하락장 3개 필터)
+- [x] QuantUniverse 관리 (KOR 10 + USA 10 초기 데이터)
+- [x] QuantSignal + QuantFeatureSnapshot 저장
+- [x] /api/quant/** 5개 API 엔드포인트
+- [x] 일배치 스케줄러 (KOR 09:10 / USA 22:30)
+- USA 데이터: Alpha Vantage Stub (Phase 10에서 실제 연동)
+- RAG 통합: Phase 7 미구현으로 생략 (Phase 10+에서 재검토)
+
+### Phase 10 ~ 11 (대기)
+- [ ] Phase 10: Market Regime 고도화 + Alpha Vantage 실제 연동 + RAG 통합
+- [ ] Phase 11: Quant Alpha Tracking + 가중치 Self-Correction
 
 ## 참고
 
@@ -135,8 +171,13 @@ corporate_disclosure: DART API (KOR 종목 공시)
 - Phase 8 카테고리: 공시호재 | 공시악재 | 수급집중 | 실적개선 | 저평가해소 | 섹터모멘텀 | 뉴스모멘텀
 - Phase 8 실패 판정: BUY alpha10d < -5%, SELL alpha10d > +5%
 - Phase 8 피드백 API: /api/feedback/stats (카테고리 통계), /api/feedback/recent, /api/feedback/{reportId}
-- Quant 도메인 모델: `.claude/references/data-model/quant/quant_signal.yaml`
+- Quant 도메인 모델: `.claude/references/data-model/quant/quant_signal.yaml` (Phase 9 구현 반영됨)
 - Quant 에러코드: 405xx (주의: 404xx는 watchlist 도메인이 사용 중)
-- Module Guard: Core ↔ Quant 직접 의존 금지. 공유는 RAG/Feedback/Telegram만 허용.
-- KisTokenManager: Quant에서도 재활용 가능 (Spring Bean 공유)
-- Alpha Vantage API: USA Quant 지표용 별도 연동 필요 (Phase 9에서 추가)
+- Module Guard: Core ↔ Quant 직접 의존 금지. QuantNewsPort/QuantNewsCrawlerAdapter로 신호 도메인 Crawler 격리.
+- KisTokenManager: Quant KisQuantDataAdapter에서 재활용 (Spring Bean 공유)
+- QuantDataPort: KOR=KisQuantDataAdapter(구현), USA=Stub(Phase 10에서 AlphaVantage 실제 연동)
+- Quant 패키지: domain.quant.domain.*, domain.quant.application.*, domain.quant.presentation.*, domain.quant.infrastructure.*
+- QuantUniverse 초기화: QuantUniverseInitializer @PostConstruct — 비어있을 때만 KOR10+USA10 삽입
+- Quant 스케줄러: KOR 09:10 / USA 22:30 (CRISIS 국면 시 자동 건너뜀)
+- Quant API: GET /api/quant/top-signals, /scores, /scores/{ticker}, /universe, /regime
+- Alpha Vantage 설정: application.yaml에 추가됨 (api-key: ${ALPHA_VANTAGE_API_KEY:stub})

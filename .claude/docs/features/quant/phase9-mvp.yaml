@@ -1,0 +1,527 @@
+# Feature Specification — Phase 9 MVP
+# Status: Draft
+# Last Updated: 2026-05-15
+
+meta:
+  id: FEAT-009
+  title: "Quant Signal Engine MVP — Feature Engineering + Scoring Engine"
+  type: Feature
+  phase: Phase 9
+  author: Agent
+  status: Draft
+
+# ─────────────────────────────────────────
+# Overview
+# ─────────────────────────────────────────
+overview:
+  summary: >
+    KOR/USA 시총 TOP20 대상 정량 Quant Score를 산출하여 상위 3개 종목을 선별하고,
+    AI(Groq)가 선별 이유를 해석하는 최소 동작 파이프라인 구축.
+    "숫자가 판단하고 LLM이 설명한다" 원칙.
+
+  user_story: >
+    As a 주린이 투자자,
+    I want to 매일 아침 시총 상위 종목 중 퀀트 지표 기반 TOP3 종목과 AI 해석 리포트를 확인하고,
+    so that 정량 데이터 기반의 객관적 투자 참고 정보를 얻는다.
+
+  goals:
+    - QuantUniverse (KOR 10 + USA 10, 고정 유니버스) 관리
+    - Feature Engineering Layer — 4개 MVP Feature 계산
+    - Quant Scoring Engine — 가중치 합산 0~100점
+    - Risk Filtering Layer — 3개 필터 적용
+    - TOP3 선별 + Groq LLM 해석 리포트 생성
+    - 일배치 스케줄러 (KOR 09:10 / USA 22:30)
+    - /api/quant/** 5개 API 엔드포인트
+
+# ─────────────────────────────────────────
+# Scope
+# ─────────────────────────────────────────
+scope:
+  in:
+    entities:
+      - QuantUniverse       # 분석 대상 유니버스 (KOR 10 + USA 10)
+      - QuantSignal         # TOP3 시그널 결과
+      - QuantFeatureSnapshot # Feature 값 스냅샷
+    domain_services:
+      - QuantScoringService  # Feature → Score 계산 + TOP3 선별
+      - MarketRegimeService  # 시장 국면 판단 (KIS 지수 기반)
+      - RiskFilterService    # 3개 리스크 필터
+      - QuantSignalReader    # 시그널 조회
+      - QuantSignalWriter    # 시그널 저장
+      - QuantUniverseReader  # 유니버스 조회
+    ports:
+      - QuantDataPort        # 외부 데이터 수집 인터페이스 (DIP)
+    adapters:
+      - KisQuantDataAdapter         # KOR 데이터 (KIS API + KisTokenManager 재활용)
+      - AlphaVantageQuantAdapter    # USA 데이터 (Stub — Phase 10에서 실제 연동)
+    feature_calculators:           # Strategy Pattern (QuantFeatureCalculator interface)
+      - VolumeRatio5dCalculator     # 거래량 배수 (PriceSnapshot DB 재활용)
+      - PriceMomentum5dCalculator   # 5일 가격 모멘텀 %
+      - NewsFreshnessCalculator     # 뉴스 신선도 점수 (기존 Crawler 재활용)
+      - MarketRegimeScoreCalculator # 시장 국면 보정 계수
+    usecases:
+      - QuantSignalUseCase  # 조회 operations (top-signals, scores, universe, regime)
+      - QuantEngineUseCase  # 점수 계산 + 시그널 생성 (배치에서 호출)
+    scheduler:
+      - QuantSignalScheduler  # 09:10 KOR / 22:30 USA
+    controller:
+      - QuantController  # /api/quant/**
+    error_codes:
+      - QuantErrorCode   # 405xx
+
+  out: >
+    RAG 통합 (Phase 7 미구현 → Phase 10+),
+    QuantAlphaResult / Alpha Tracking (Phase 11),
+    가중치 Self-Correction (Phase 11),
+    외국인/기관 순매수 속도 Feature (KIS 별도 Endpoint → Phase 10),
+    Short Covering Score (금융위 Open API → Phase 10),
+    Alpha Vantage 실제 연동 (Phase 10),
+    실시간 장중 분봉 Feature (volume_acceleration, price_momentum_15m → Phase 10)
+
+# ─────────────────────────────────────────
+# Package Structure
+# (Core 패턴 준수 — domain.quant.* 통합)
+# ─────────────────────────────────────────
+package_structure:
+  note: >
+    quant_signal.yaml은 usecase/presentation을 최상위 분리로 기술하나,
+    기존 Core 코드베이스 일관성을 위해 domain.quant.* 패턴으로 통일한다.
+  layout: |
+    domain/quant/
+      domain/
+        entity/
+          QuantUniverse.java
+          QuantSignal.java
+          QuantFeatureSnapshot.java
+        repository/
+          QuantUniverseRepository.java
+          QuantSignalRepository.java
+          QuantFeatureSnapshotRepository.java
+        service/
+          QuantSignalReader.java
+          QuantSignalWriter.java
+          QuantUniverseReader.java
+          QuantScoringService.java       # Feature → Score + TOP3 선별
+          MarketRegimeService.java       # 시장 국면 판단
+          RiskFilterService.java         # 리스크 필터
+        port/
+          QuantDataPort.java             # 외부 데이터 인터페이스 (DIP)
+        calculator/
+          QuantFeatureCalculator.java    # 인터페이스 (Strategy)
+          QuantFeatureResult.java        # 계산 결과 record
+          VolumeRatio5dCalculator.java
+          PriceMomentum5dCalculator.java
+          NewsFreshnessCalculator.java
+          MarketRegimeScoreCalculator.java
+      application/
+        usecase/
+          QuantSignalUseCase.java        # 조회 Facade
+          QuantEngineUseCase.java        # 시그널 생성 (배치 호출)
+        dto/
+          response/
+            QuantSignalResponse.java
+            QuantScoreDetailResponse.java
+            QuantUniverseResponse.java
+            MarketRegimeResponse.java
+        scheduler/
+          QuantSignalScheduler.java
+        exception/
+          QuantErrorCode.java
+      presentation/
+        QuantController.java
+        QuantResponseCode.java
+      infrastructure/
+        KisQuantDataAdapter.java    # KOR (KisTokenManager 재활용)
+        AlphaVantageQuantAdapter.java  # USA Stub
+
+# ─────────────────────────────────────────
+# Feature Engineering (MVP 4개)
+# ─────────────────────────────────────────
+feature_engineering:
+  interface: QuantFeatureCalculator
+  method: "QuantFeatureResult calculate(String ticker, MarketType market)"
+  enum: FeatureType  # VOLUME_RATIO_5D | PRICE_MOMENTUM_5D | NEWS_FRESHNESS | MARKET_REGIME
+
+  features:
+    volume_ratio_5d:
+      description: 현재 거래량 / 5일 평균 거래량 (배수)
+      data_source: PriceSnapshot 테이블 (이미 DB에 있음, KIS API 재활용)
+      calculator: VolumeRatio5dCalculator
+      logic: |
+        List<PriceSnapshot> recent5d = priceSnapshotRepository.findTop5ByTickerOrderByPriceDateDesc(ticker);
+        double avg5dVolume = recent5d.stream().mapToLong(PriceSnapshot::getVolume).average();
+        double currentVolume = recent5d.get(0).getVolume();
+        return currentVolume / avg5dVolume;  // 1.0 = 평균, >1 = 거래 증가
+      normalized: "0.0 ~ 5.0+ (5.0 이상은 cap)"
+
+    price_momentum_5d:
+      description: 5일 가격 모멘텀 (%)
+      data_source: PriceSnapshot 테이블
+      calculator: PriceMomentum5dCalculator
+      logic: |
+        BigDecimal currentPrice = recent5d.get(0).getClosePrice();
+        BigDecimal price5dAgo  = recent5d.get(recent5d.size()-1).getClosePrice();
+        return (currentPrice - price5dAgo) / price5dAgo * 100;
+      normalized: "% 값 그대로 (-100 ~ +100)"
+
+    news_freshness_score:
+      description: 최근 24시간 뉴스 개수 기반 신선도 점수 (0~100)
+      data_source: 기존 NewsPort (NaverFinanceCrawler / YahooFinanceCrawler) 재활용
+      calculator: NewsFreshnessCalculator
+      logic: |
+        List<String> news = newsCrawlerStrategy.crawl(ticker, market);
+        int count = news.size();
+        return Math.min(count * 10, 100);  // 뉴스 10개 이상 = 100점
+      normalized: "0 ~ 100"
+
+    market_regime:
+      description: 시장 국면 보정 계수 (-10 ~ +10)
+      data_source: KisQuantDataAdapter (KOR: KOSPI 지수 0001 / USA: 고정 BULL 임시)
+      calculator: MarketRegimeScoreCalculator
+      logic: |
+        MarketRegime regime = marketRegimeService.analyze(market);
+        return switch(regime) {
+          case STRONG_BULL -> +10;
+          case BULL        -> +5;
+          case SIDEWAYS    -> 0;
+          case BEAR        -> -5;
+          case CRISIS      -> -10;
+        };
+      normalized: "-10 ~ +10 (보정 계수)"
+
+# ─────────────────────────────────────────
+# Quant Scoring Engine
+# ─────────────────────────────────────────
+scoring:
+  class: QuantScoringService
+  formula: >
+    totalScore = (volume_ratio_score * 35)
+               + (momentum_score * 30)
+               + (news_freshness_score * 20)
+               + market_regime_bonus  [+10 to -10]
+    → cap 0~100
+
+  feature_normalization:
+    volume_ratio_5d: "normalizedScore = min(volumeRatio / 3.0, 1.0) * 100"
+    price_momentum_5d: "normalizedScore = min(max(momentum + 10, 0), 20) / 20 * 100  (±10% 범위 정규화)"
+    news_freshness_score: "그대로 사용 (0~100)"
+
+  weights:
+    volume_ratio_5d: 0.35
+    price_momentum_5d: 0.30
+    news_freshness_score: 0.20
+    market_regime_bonus: 보정 (-10 ~ +10 직접 가산)
+
+  result: QuantScore record (ticker, totalScore, featureScores Map, marketRegime, calculatedAt)
+
+# ─────────────────────────────────────────
+# Risk Filtering
+# ─────────────────────────────────────────
+risk_filtering:
+  class: RiskFilterService
+  filters:
+    - name: 유동성 필터
+      condition: volume_ratio_5d < 0.3
+      action: EXCLUDE
+      reason: 거래량 급감 — 유동성 부족
+
+    - name: 하락장 필터
+      condition: regime == BEAR AND price_momentum_5d < -5.0
+      action: EXCLUDE
+      reason: 하락장 + 약세 종목 제외
+
+    - name: 급등 선반영 필터
+      condition: price_momentum_5d > 20.0
+      action: EXCLUDE
+      reason: 이미 20% 이상 급등 — 선반영 리스크
+
+  after_filter: TOP3 선별 (totalScore 내림차순 정렬 후 상위 3개)
+  crisis_handling: >
+    MarketRegime == CRISIS → 전체 유니버스 시그널 생성 중단,
+    QuantErrorCode.MARKET_REGIME_CRISIS 예외 발생 (QuantController에서 응답)
+
+# ─────────────────────────────────────────
+# Market Regime Analysis (간단 버전)
+# ─────────────────────────────────────────
+market_regime:
+  class: MarketRegimeService
+  data: KIS 지수 5일 일별 데이터 (KOR: 코스피 지수 코드 "0001")
+  logic: |
+    KOR: KisQuantDataAdapter.fetchIndexReturn5d("0001") 로 5일 지수 변동률 계산
+    USA: Phase 10에서 Alpha Vantage 연동. MVP에서는 BULL 고정 (Stub)
+
+    KOR 판단 기준 (5일 지수 변동률):
+      > +3%  → STRONG_BULL
+      > 0%   → BULL
+      > -2%  → SIDEWAYS
+      > -5%  → BEAR
+      <= -5% → CRISIS
+  note: >
+    KIS 지수 API: GET /uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice
+    trId: FHKUP03500100 (업무 일련번호)
+
+# ─────────────────────────────────────────
+# QuantDataPort & Adapters
+# ─────────────────────────────────────────
+ports:
+  QuantDataPort:
+    package: domain.quant.domain.port
+    methods:
+      - "fetchVolumeAndPrice(String ticker, MarketType market, int days): List<DailyQuote>"
+      - "fetchIndexReturn5d(String indexCode): double  // KOR 지수 5일 변동률"
+    note: >
+      MVP에서는 기존 PriceSnapshot 테이블 데이터를 우선 활용.
+      QuantDataPort는 신규 실시간 데이터가 필요한 경우를 위한 확장점.
+
+  KisQuantDataAdapter:
+    package: domain.quant.infrastructure
+    implements: QuantDataPort
+    reuse: KisTokenManager (Spring Bean 재활용)
+    note: >
+      KOR 전용. fetchIndexReturn5d()만 신규 구현.
+      fetchVolumeAndPrice()는 기존 PriceSnapshot 테이블로 대체 (KIS 추가 호출 최소화).
+
+  AlphaVantageQuantAdapter:
+    package: domain.quant.infrastructure
+    status: Stub (USA — Phase 10에서 실제 연동)
+    note: >
+      MVP: USA 종목의 fetchVolumeAndPrice()는 PriceSnapshot 테이블 fallback.
+      fetchIndexReturn5d()는 BULL 고정 반환.
+
+# ─────────────────────────────────────────
+# QuantUniverse 초기 데이터
+# ─────────────────────────────────────────
+universe_init:
+  strategy: "@PostConstruct in QuantUniverseInitializer (Application Startup)"
+  condition: "quant_universe 테이블이 비어있을 때만 insert"
+  kor_top10:
+    - {ticker: "005930", name: "삼성전자",   rank: 1, sector: "반도체"}
+    - {ticker: "000660", name: "SK하이닉스", rank: 2, sector: "반도체"}
+    - {ticker: "005380", name: "현대차",     rank: 3, sector: "자동차"}
+    - {ticker: "035420", name: "NAVER",      rank: 4, sector: "IT"}
+    - {ticker: "051910", name: "LG화학",     rank: 5, sector: "화학"}
+    - {ticker: "006400", name: "삼성SDI",    rank: 6, sector: "배터리"}
+    - {ticker: "207940", name: "삼성바이오로직스", rank: 7, sector: "바이오"}
+    - {ticker: "005490", name: "POSCO홀딩스", rank: 8, sector: "철강"}
+    - {ticker: "035720", name: "카카오",     rank: 9, sector: "IT"}
+    - {ticker: "000270", name: "기아",       rank: 10, sector: "자동차"}
+  usa_top10:
+    - {ticker: "AAPL",  name: "Apple",     rank: 1, sector: "IT"}
+    - {ticker: "MSFT",  name: "Microsoft", rank: 2, sector: "IT"}
+    - {ticker: "NVDA",  name: "NVIDIA",    rank: 3, sector: "반도체"}
+    - {ticker: "AMZN",  name: "Amazon",    rank: 4, sector: "커머스"}
+    - {ticker: "GOOGL", name: "Alphabet",  rank: 5, sector: "IT"}
+    - {ticker: "META",  name: "Meta",      rank: 6, sector: "소셜미디어"}
+    - {ticker: "TSLA",  name: "Tesla",     rank: 7, sector: "자동차"}
+    - {ticker: "BRK.B", name: "Berkshire", rank: 8, sector: "금융"}
+    - {ticker: "LLY",   name: "Eli Lilly", rank: 9, sector: "바이오"}
+    - {ticker: "JPM",   name: "JPMorgan",  rank: 10, sector: "금융"}
+
+# ─────────────────────────────────────────
+# LLM Report Generation
+# ─────────────────────────────────────────
+llm_report:
+  engine: Groq (llama-3.1-8b-instant) — 기존 AiChatService 재활용 또는 직접 ChatClient
+  trigger: TOP3 선별 후 각 종목별 1회 호출
+  prompt_template: |
+    너는 퀀트 애널리스트다. 아래 정량 지표 기반으로 {ticker}({name}) 종목이
+    오늘 TOP3에 선정된 이유를 3줄로 설명하라.
+
+    [Quant Score] {totalScore}점
+    [거래량 배수] {volumeRatio5d}배 (5일 평균 대비)
+    [5일 모멘텀] {priceMomentum5d}%
+    [뉴스 신선도] {newsFreshnessScore}점
+    [시장 국면] {marketRegime}
+
+    출력 형식:
+    ① {수급/모멘텀/뉴스 중 핵심 근거 1}
+    ② {핵심 근거 2}
+    ③ {핵심 근거 3}
+    ⚠️ 본 시그널은 AI 참고 정보입니다. 투자 판단과 책임은 전적으로 사용자에게 있습니다.
+  timeout: 30s, 실패 시 llm_report = null (API는 정상 응답)
+
+# ─────────────────────────────────────────
+# Batch Scheduler
+# ─────────────────────────────────────────
+scheduler:
+  class: QuantSignalScheduler
+  jobs:
+    kor_batch:
+      cron: "0 10 9 * * MON-FRI"     # 09:10 (장 개시 10분 후)
+      action: QuantEngineUseCase.runBatch(MarketType.KOR)
+
+    usa_batch:
+      cron: "0 30 22 * * MON-FRI"    # 22:30 (미국장 개시 후)
+      action: QuantEngineUseCase.runBatch(MarketType.USA)
+
+# ─────────────────────────────────────────
+# API Endpoints
+# ─────────────────────────────────────────
+technical_spec:
+  api:
+    - method: GET
+      path: /api/quant/top-signals
+      summary: 오늘의 TOP3 Quant 시그널 조회 (DB 캐시)
+      auth: 없음
+      request: 없음
+      response:
+        dto: "List<QuantSignalResponse>"
+        wrapper: "ApiResponse<List<QuantSignalResponse>>"
+        fields:
+          - signalId, ticker, stockName, marketType
+          - totalScore, signalRank, marketRegime
+          - llmReport, disclaimer, signalDate
+          - featureSnapshot (QuantFeatureSnapshotResponse 내포)
+
+    - method: GET
+      path: /api/quant/scores
+      summary: 전체 유니버스 최신 Quant Score 목록
+      auth: 없음
+      response:
+        dto: "List<QuantScoreResponse>"
+        fields: [ticker, stockName, marketType, totalScore, signalDate, signalRank(nullable)]
+
+    - method: GET
+      path: /api/quant/scores/{ticker}
+      summary: 특정 종목 Quant Score 상세 (Feature 값 포함)
+      auth: 없음
+      path_param: ticker (종목코드)
+      response:
+        dto: QuantScoreDetailResponse
+        fields:
+          - ticker, stockName, marketType, totalScore, marketRegime
+          - featureSnapshot (volume_ratio_5d, price_momentum_5d, news_freshness_score 등)
+          - signalDate
+      error:
+        - 40501: QUANT_SIGNAL_NOT_FOUND (해당 ticker 시그널 없음)
+
+    - method: GET
+      path: /api/quant/universe
+      summary: 현재 분석 유니버스 목록 (active=true)
+      auth: 없음
+      response:
+        dto: "List<QuantUniverseResponse>"
+        fields: [ticker, stockName, marketType, marketCapRank, sector, addedAt]
+
+    - method: GET
+      path: /api/quant/regime
+      summary: 현재 시장 국면 조회 (KOR/USA)
+      auth: 없음
+      response:
+        dto: MarketRegimeResponse
+        fields: [korRegime, usaRegime, analyzedAt]
+
+  data_flow:
+    GET /api/quant/top-signals:
+      - step: 1
+        layer: Presentation
+        action: "QuantController.getTopSignals() → QuantSignalUseCase.getTopSignals()"
+      - step: 2
+        layer: UseCase
+        action: "QuantSignalReader.findTodayTop3() → 오늘 날짜 signal_date 기준 DB 조회"
+      - step: 3
+        layer: Domain
+        action: "QuantSignal + QuantFeatureSnapshot JOIN 조회"
+      - step: 4
+        layer: Response
+        action: "QuantSignalResponse.from(signal) 변환 반환"
+
+    POST /internal/quant/run-batch (Scheduler only):
+      - step: 1
+        layer: Scheduler
+        action: "QuantSignalScheduler → QuantEngineUseCase.runBatch(marketType)"
+      - step: 2
+        layer: UseCase
+        action: |
+          1. QuantUniverseReader.findActiveByMarket(market)  // 유니버스 10개
+          2. MarketRegimeService.analyze(market)              // 시장 국면 판단
+          3. If CRISIS → throw QuantErrorCode.MARKET_REGIME_CRISIS (스케줄러 로그 후 중단)
+          4. For each ticker: run QuantFeatureCalculators (4개)
+          5. QuantScoringService.score() → List<QuantScore>
+          6. RiskFilterService.filter() → 필터 적용
+          7. QuantScoringService.selectTop3()
+          8. For each TOP3: Groq LLM 리포트 생성
+          9. QuantSignalWriter.saveAll() (QuantSignal + QuantFeatureSnapshot)
+      - step: 3
+        layer: Infrastructure
+        action: "KisQuantDataAdapter (KOR 지수) / AlphaVantageQuantAdapter Stub (USA)"
+
+  database:
+    entities:
+      - name: QuantUniverse
+        action: Read (초기 데이터는 @PostConstruct로 insert)
+        table: quant_universe
+      - name: QuantSignal
+        action: Create (배치 시 신규 생성)
+        table: quant_signal
+        note: signal_date 기준 당일 데이터 존재하면 덮어쓰기 (upsert 또는 delete+insert)
+      - name: QuantFeatureSnapshot
+        action: Create (QuantSignal과 함께 생성, cascade ALL)
+        table: quant_feature_snapshot
+
+  validation_rules:
+    - "QuantUniverse: ticker + market_type UNIQUE 제약"
+    - "QuantSignal: signal_date + ticker UNIQUE (당일 중복 시그널 방지)"
+    - "CRISIS 국면에서는 시그널 생성 중단 (배치 스킵)"
+    - "TOP3 미만 종목 (필터 후 3개 미만): 가능한 수만큼 저장 (최소 0개)"
+    - "LLM 실패 시: llm_report = null, disclaimer는 항상 저장"
+
+# ─────────────────────────────────────────
+# Error Codes (405xx)
+# ─────────────────────────────────────────
+error_codes:
+  40501: QUANT_SIGNAL_NOT_FOUND      # 해당 ticker/날짜 시그널 없음
+  40502: QUANT_UNIVERSE_EMPTY        # 유니버스에 active 종목 없음
+  40503: MARKET_REGIME_CRISIS        # CRISIS 국면 — 시그널 요청 불가
+  40504: QUANT_DATA_FETCH_FAILED     # KIS/Alpha Vantage 수집 실패
+  40505: QUANT_SCORE_CALC_FAILED     # Scoring 계산 오류
+
+# ─────────────────────────────────────────
+# Testing Strategy
+# ─────────────────────────────────────────
+testing_strategy:
+  scope: UseCase + Domain Service 단위 테스트 (JUnit 5 + Mockito)
+
+  happy_path:
+    - "KOR 유니버스 10개 전체 정상 처리 시 TOP3 시그널이 저장된다"
+    - "volume_ratio_5d 가장 높은 종목이 score 상위에 포함된다"
+    - "MarketRegime BULL이면 market_regime_bonus +5점이 적용된다"
+
+  edge_cases:
+    - "유동성 필터 통과 종목이 3개 미만이면 가능한 수만큼 저장된다"
+    - "CRISIS 국면에서 runBatch() 호출 시 MARKET_REGIME_CRISIS 예외 발생"
+    - "LLM 호출 실패 시 llm_report=null로 QuantSignal이 저장된다"
+    - "같은 날 두 번 배치 실행 시 기존 시그널이 교체(delete+insert)된다"
+
+  error_cases:
+    - "KIS API 호출 실패 시 QUANT_DATA_FETCH_FAILED 예외 처리"
+    - "유니버스가 비어있으면 QUANT_UNIVERSE_EMPTY 예외"
+    - "/api/quant/scores/{ticker}에서 존재하지 않는 ticker 요청 시 40501 응답"
+
+# ─────────────────────────────────────────
+# Implementation Order (Bottom-Up)
+# ─────────────────────────────────────────
+implementation_order:
+  1: "QuantUniverse, QuantSignal, QuantFeatureSnapshot 엔티티"
+  2: "Repository 인터페이스 3개"
+  3: "QuantFeatureCalculator 인터페이스 + 4개 Calculator 구현체"
+  4: "MarketRegimeService, QuantScoringService, RiskFilterService"
+  5: "QuantDataPort 인터페이스 + KisQuantDataAdapter (지수 조회만) + AlphaVantageQuantAdapter Stub"
+  6: "QuantUniverseReader, QuantSignalReader, QuantSignalWriter"
+  7: "QuantEngineUseCase (핵심 배치 로직)"
+  8: "QuantSignalUseCase (조회 Facade)"
+  9: "QuantErrorCode + QuantResponseCode"
+  10: "QuantController (/api/quant/**)"
+  11: "QuantSignalScheduler (배치 트리거)"
+  12: "QuantUniverseInitializer (@PostConstruct 초기 데이터)"
+  13: "application.yml: alpha-vantage 설정 추가"
+  14: "단위 테스트 작성"
+
+# ─────────────────────────────────────────
+# application.yml 추가 설정
+# ─────────────────────────────────────────
+config:
+  alpha_vantage:
+    api-key: ${ALPHA_VANTAGE_API_KEY:stub}
+    base-url: https://www.alphavantage.co/query
+  note: "Phase 10에서 실제 API 키 설정. MVP에서는 Stub 동작."

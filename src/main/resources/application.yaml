@@ -59,3 +59,7 @@ kis:
   app-key: ${KIS_APP_KEY}
   app-secret: ${KIS_APP_SECRET}
   base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
+
+alpha-vantage:
+  api-key: ${ALPHA_VANTAGE_API_KEY:stub}
+  base-url: https://www.alphavantage.co/query
