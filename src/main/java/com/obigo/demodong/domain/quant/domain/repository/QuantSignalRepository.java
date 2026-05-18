@@ -24,7 +24,7 @@ public interface QuantSignalRepository extends JpaRepository<QuantSignal, Long> 
     /** 당일 특정 마켓 시그널 전체 삭제 (배치 재실행 시 덮어쓰기용) */
     @Query("SELECT s FROM QuantSignal s WHERE s.signalDate = :date AND s.marketType = :marketType")
     List<QuantSignal> findBySignalDateAndMarketType(@Param("date") LocalDate date,
-                                                    @Param("marketType") MarketType marketType);
+            @Param("marketType") MarketType marketType);
 
     /** 전체 유니버스 중 가장 최신 시그널 (스코어 목록용) */
     @Query("SELECT s FROM QuantSignal s WHERE s.signalDate = (SELECT MAX(s2.signalDate) FROM QuantSignal s2 WHERE s2.ticker = s.ticker) AND s.deleted = false")

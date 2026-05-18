@@ -70,15 +70,18 @@ public class KisQuantDataAdapter implements QuantDataPort {
                     .bodyToMono(KisDailyPriceResponse.class)
                     .block();
 
-            if (response == null || response.output2() == null) return Collections.emptyList();
+            if (response == null || response.output2() == null)
+                return Collections.emptyList();
 
             List<DailyQuote> result = new ArrayList<>();
             for (KisDailyItem item : response.output2()) {
-                if (item.stckBsopDate() == null || item.stckClpr() == null) continue;
+                if (item.stckBsopDate() == null || item.stckClpr() == null)
+                    continue;
                 LocalDate date = LocalDate.parse(item.stckBsopDate(), KIS_DATE);
                 Long volume = parseVolume(item.acmlVol());
                 result.add(new DailyQuote(date, new BigDecimal(item.stckClpr()), volume));
-                if (result.size() >= days) break;
+                if (result.size() >= days)
+                    break;
             }
 
             // 최신순 정렬
@@ -101,7 +104,7 @@ public class KisQuantDataAdapter implements QuantDataPort {
                     .uri(uriBuilder -> uriBuilder
                             .path("/uapi/domestic-stock/v1/quotations/inquire-daily-indexchartprice")
                             .queryParam("FID_COND_MRKT_DIV_CODE", "U")
-                            .queryParam("FID_INPUT_ISCD", "0001")  // KOSPI
+                            .queryParam("FID_INPUT_ISCD", "0001") // KOSPI
                             .queryParam("FID_INPUT_DATE_1", from.format(KIS_DATE))
                             .queryParam("FID_INPUT_DATE_2", today.format(KIS_DATE))
                             .queryParam("FID_PERIOD_DIV_CODE", "D")
@@ -122,7 +125,8 @@ public class KisQuantDataAdapter implements QuantDataPort {
             double latest = parseDouble(items.get(0).bstpNmixPrpr());
             double past5d = parseDouble(items.get(Math.min(items.size() - 1, 4)).bstpNmixPrpr());
 
-            if (past5d == 0.0) return 0.0;
+            if (past5d == 0.0)
+                return 0.0;
             double ret = (latest - past5d) / past5d * 100.0;
             log.info("[KisQuantData] KOSPI 5일 변동률: {}%", ret);
             return ret;
@@ -134,33 +138,46 @@ public class KisQuantDataAdapter implements QuantDataPort {
     }
 
     private Long parseVolume(String vol) {
-        if (vol == null || vol.isBlank()) return null;
-        try { return Long.parseLong(vol); } catch (NumberFormatException e) { return null; }
+        if (vol == null || vol.isBlank())
+            return null;
+        try {
+            return Long.parseLong(vol);
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 
     private double parseDouble(String val) {
-        if (val == null || val.isBlank()) return 0.0;
-        try { return Double.parseDouble(val.replace(",", "")); } catch (NumberFormatException e) { return 0.0; }
+        if (val == null || val.isBlank())
+            return 0.0;
+        try {
+            return Double.parseDouble(val.replace(",", ""));
+        } catch (NumberFormatException e) {
+            return 0.0;
+        }
     }
 
     // ──────────── Response Records ────────────
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record KisDailyPriceResponse(@JsonProperty("output2") List<KisDailyItem> output2) {}
+    record KisDailyPriceResponse(@JsonProperty("output2") List<KisDailyItem> output2) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record KisDailyItem(
             @JsonProperty("stck_bsop_date") String stckBsopDate,
-            @JsonProperty("stck_clpr")      String stckClpr,
-            @JsonProperty("acml_vol")       String acmlVol
-    ) {}
+            @JsonProperty("stck_clpr") String stckClpr,
+            @JsonProperty("acml_vol") String acmlVol) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record KisIndexResponse(@JsonProperty("output2") List<KisIndexItem> output2) {}
+    record KisIndexResponse(@JsonProperty("output2") List<KisIndexItem> output2) {
+    }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record KisIndexItem(
-            @JsonProperty("stck_bsop_date")   String stckBsopDate,
-            @JsonProperty("bstp_nmix_prpr")   String bstpNmixPrpr  // 지수 종가
-    ) {}
+            @JsonProperty("stck_bsop_date") String stckBsopDate,
+            @JsonProperty("bstp_nmix_prpr") String bstpNmixPrpr // 지수 종가
+    ) {
+    }
 }

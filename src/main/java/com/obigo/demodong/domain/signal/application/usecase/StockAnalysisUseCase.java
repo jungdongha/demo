@@ -77,7 +77,8 @@ public class StockAnalysisUseCase {
     private StockAnalysisResponse doAnalysis(String query, SourceType sourceType) {
         String ticker = resolveQuery(query);
         MarketType marketType = detectMarketType(ticker);
-        log.info("주식 분석 시작 - query: {}, ticker: {}, marketType: {}, sourceType: {}", query, ticker, marketType, sourceType);
+        log.info("주식 분석 시작 - query: {}, ticker: {}, marketType: {}, sourceType: {}", query, ticker, marketType,
+                sourceType);
 
         Stock stock = findOrCreateStock(ticker, query, marketType);
         String rawNews = findCrawler(marketType).crawl(query);
@@ -92,8 +93,7 @@ public class StockAnalysisUseCase {
                 "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다. 주가 흐름과 공시 데이터를 중심으로 판단하라." : rawNews,
                 "priceData", priceData,
                 "disclosureData", disclosureData.isBlank() ? "최근 공시 없음" : disclosureData,
-                "portfolioContext", portfolioContext
-        ));
+                "portfolioContext", portfolioContext));
 
         String analysis = aiChatService.getChatResponse(systemPrompt, userPrompt);
         String reason = parseReason(analysis);
@@ -122,8 +122,7 @@ public class StockAnalysisUseCase {
                     "news", rawNews.isEmpty() ? "최근 뉴스를 찾을 수 없습니다. 주가 흐름과 공시 데이터를 중심으로 판단하라." : rawNews,
                     "priceData", priceData,
                     "disclosureData", disclosureData.isBlank() ? "최근 공시 없음" : disclosureData,
-                    "portfolioContext", portfolioContext
-            ));
+                    "portfolioContext", portfolioContext));
 
             StringBuilder fullContent = new StringBuilder();
 
@@ -176,8 +175,7 @@ public class StockAnalysisUseCase {
                         .rawNewsText(rawNews)
                         .sourceType(sourceType)
                         .expectedReasonCategory(reasonCategory)
-                        .build()
-        );
+                        .build());
         return signalType;
     }
 
@@ -186,7 +184,8 @@ public class StockAnalysisUseCase {
      * 우선순위 순으로 검사하며, 해당 키워드가 발견되면 즉시 반환.
      */
     private String inferReasonCategory(String analysis, SignalType signalType) {
-        if (analysis == null) return "뉴스모멘텀";
+        if (analysis == null)
+            return "뉴스모멘텀";
         // 1. 공시 관련
         if (containsAny(analysis, "자사주", "수주", "공시", "CB", "BW", "유상증자", "전환사채", "신주인수권")) {
             return signalType == SignalType.SELL ? "공시악재" : "공시호재";
@@ -212,7 +211,8 @@ public class StockAnalysisUseCase {
 
     private boolean containsAny(String text, String... keywords) {
         for (String kw : keywords) {
-            if (text.contains(kw)) return true;
+            if (text.contains(kw))
+                return true;
         }
         return false;
     }
@@ -225,8 +225,10 @@ public class StockAnalysisUseCase {
      */
     private String resolveQuery(String query) {
         String trimmed = query.trim();
-        if (trimmed.matches("\\d{6}")) return trimmed;
-        if (trimmed.matches("[A-Za-z.\\-]{1,10}")) return trimmed.toUpperCase();
+        if (trimmed.matches("\\d{6}"))
+            return trimmed;
+        if (trimmed.matches("[A-Za-z.\\-]{1,10}"))
+            return trimmed.toUpperCase();
         if (trimmed.matches(".*[가-힣].*")) {
             return dartCorpCodeMapper.resolveTickerByName(trimmed)
                     .orElseThrow(() -> {
@@ -253,8 +255,7 @@ public class StockAnalysisUseCase {
                                     .marketType(marketType)
                                     .dartCorpCode(dartCorpCode)
                                     .isWatchlist(false)
-                                    .build()
-                    );
+                                    .build());
                 });
     }
 
@@ -270,7 +271,8 @@ public class StockAnalysisUseCase {
     }
 
     private String fetchDisclosureData(Stock stock) {
-        if (stock.getMarketType() != MarketType.KOR) return "해외 종목 — 공시 데이터 미지원";
+        if (stock.getMarketType() != MarketType.KOR)
+            return "해외 종목 — 공시 데이터 미지원";
 
         if (stock.getDartCorpCode() == null || stock.getDartCorpCode().isBlank()) {
             log.warn("DART corp_code 미매핑 - ticker: {}", stock.getTicker());
@@ -292,7 +294,8 @@ public class StockAnalysisUseCase {
         return portfolioReader.findByStockTicker(stock.getTicker())
                 .map(detail -> {
                     BigDecimal currentPrice = stockPricePort.fetchCurrentPrice(stock);
-                    if (currentPrice == null) return "";
+                    if (currentPrice == null)
+                        return "";
                     BigDecimal profitRate = currentPrice.subtract(detail.getAvgPrice())
                             .divide(detail.getAvgPrice(), 4, RoundingMode.HALF_UP)
                             .multiply(BigDecimal.valueOf(100))
@@ -317,15 +320,21 @@ public class StockAnalysisUseCase {
 
     private SignalType parseSignalType(String content) {
         // 1순위: 정확한 대괄호 형식 [BUY] / [SELL] / [HOLD]
-        if (content.contains("[BUY]"))  return SignalType.BUY;
-        if (content.contains("[SELL]")) return SignalType.SELL;
-        if (content.contains("[HOLD]")) return SignalType.HOLD;
+        if (content.contains("[BUY]"))
+            return SignalType.BUY;
+        if (content.contains("[SELL]"))
+            return SignalType.SELL;
+        if (content.contains("[HOLD]"))
+            return SignalType.HOLD;
 
         // 2순위: 대소문자 무시 + 이모지 / 단어 경계 매칭 (모델이 형식을 약간 벗어난 경우)
         String upper = content.toUpperCase();
-        if (upper.contains("🟢") || upper.contains("매수 신호") || upper.matches("(?s).*\\bBUY\\b.*"))  return SignalType.BUY;
-        if (upper.contains("🔴") || upper.contains("매도 신호") || upper.matches("(?s).*\\bSELL\\b.*")) return SignalType.SELL;
-        if (upper.contains("🟡") || upper.contains("관망 신호") || upper.matches("(?s).*\\bHOLD\\b.*")) return SignalType.HOLD;
+        if (upper.contains("🟢") || upper.contains("매수 신호") || upper.matches("(?s).*\\bBUY\\b.*"))
+            return SignalType.BUY;
+        if (upper.contains("🔴") || upper.contains("매도 신호") || upper.matches("(?s).*\\bSELL\\b.*"))
+            return SignalType.SELL;
+        if (upper.contains("🟡") || upper.contains("관망 신호") || upper.matches("(?s).*\\bHOLD\\b.*"))
+            return SignalType.HOLD;
 
         log.warn("signal_type 파싱 실패, HOLD로 기본값 처리. content 앞 200자: {}",
                 content.length() > 200 ? content.substring(0, 200) : content);
@@ -336,10 +345,14 @@ public class StockAnalysisUseCase {
         StringBuilder sb = new StringBuilder();
         boolean capture = false;
         for (String line : content.split("\n")) {
-            if (line.contains("핵심 요약")) { capture = true; continue; }
+            if (line.contains("핵심 요약")) {
+                capture = true;
+                continue;
+            }
             if (capture && line.trim().startsWith("-") && !line.trim().startsWith("---"))
                 sb.append(line.trim()).append("\n");
-            if (capture && line.trim().startsWith("---")) break;
+            if (capture && line.trim().startsWith("---"))
+                break;
         }
         return sb.toString().trim();
     }
