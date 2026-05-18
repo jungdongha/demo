@@ -75,4 +75,6 @@ jobs:
             docker run -d --name demo-dong \
               -p 8090:8090 \
               --env-file ~/demo-dong.env \
-              ${{ secrets.DOCKERHUB_USERNAME }}/demo-dong:latest
+              --entrypoint java \
+              ${{ secrets.DOCKERHUB_USERNAME }}/demo-dong:latest \
+              -Dhttps.protocols=TLSv1.2,TLSv1.3 -Djdk.tls.client.protocols=TLSv1.2,TLSv1.3 -jar /app.jar
