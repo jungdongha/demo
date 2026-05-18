@@ -22,7 +22,8 @@ public class SignalReportReader {
         LocalDateTime start = LocalDate.now().atStartOfDay();
         LocalDateTime end = start.plusDays(1);
         return signalReportRepository
-                .findBySourceTypeAndDeletedFalseAndCreatedAtBetweenOrderByCreatedAtDesc(SourceType.SCHEDULED, start, end);
+                .findBySourceTypeAndDeletedFalseAndCreatedAtBetweenOrderByCreatedAtDesc(SourceType.SCHEDULED, start,
+                        end);
     }
 
     public Page<SignalReport> findByTicker(String ticker, Pageable pageable) {

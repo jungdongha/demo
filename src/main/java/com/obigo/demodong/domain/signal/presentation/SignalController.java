@@ -44,6 +44,7 @@ public class SignalController {
     public ApiResponse<Page<SignalHistoryResponse>> getHistory(
             @PathVariable String ticker,
             @PageableDefault(size = 20) Pageable pageable) {
-        return ApiResponse.ok(SignalResponseCode.REPORT_LIST_SUCCESS, stockAnalysisUseCase.getHistoryByTicker(ticker, pageable));
+        return ApiResponse.ok(SignalResponseCode.REPORT_LIST_SUCCESS,
+                stockAnalysisUseCase.getHistoryByTicker(ticker, pageable));
     }
 }
