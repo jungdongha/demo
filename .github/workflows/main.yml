@@ -9,8 +9,10 @@ on:
 jobs:
   ci-cd:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -54,7 +56,7 @@ jobs:
         with:
           context: .
           push: true
-          platforms: linux/amd64,linux/arm64
+          platforms: linux/amd64
           tags: ${{ secrets.DOCKERHUB_USERNAME }}/demo-dong:latest
 
       - name: Deploy to AWS
@@ -69,12 +71,19 @@ jobs:
           envs: ENV_PROPERTIES
           script: |
             echo "$ENV_PROPERTIES" > ~/demo-dong.env
+
             docker stop demo-dong || true
             docker rm demo-dong || true
+
             docker pull ${{ secrets.DOCKERHUB_USERNAME }}/demo-dong:latest
-            docker run -d --name demo-dong \
+
+            docker run -d \
+              --name demo-dong \
               -p 8090:8090 \
               --env-file ~/demo-dong.env \
+              --restart unless-stopped \
               --entrypoint java \
               ${{ secrets.DOCKERHUB_USERNAME }}/demo-dong:latest \
-              -Dhttps.protocols=TLSv1.2,TLSv1.3 -Djdk.tls.client.protocols=TLSv1.2,TLSv1.3 -jar /app.jar
+              -Dhttps.protocols=TLSv1.2 \
+              -Djdk.tls.client.protocols=TLSv1.2 \
+              -jar /app.jar
