@@ -316,10 +316,19 @@ public class StockAnalysisUseCase {
     }
 
     private SignalType parseSignalType(String content) {
-        if (content.contains("[BUY]")) return SignalType.BUY;
+        // 1순위: 정확한 대괄호 형식 [BUY] / [SELL] / [HOLD]
+        if (content.contains("[BUY]"))  return SignalType.BUY;
         if (content.contains("[SELL]")) return SignalType.SELL;
         if (content.contains("[HOLD]")) return SignalType.HOLD;
-        log.warn("signal_type 파싱 실패, HOLD로 기본값 처리");
+
+        // 2순위: 대소문자 무시 + 이모지 / 단어 경계 매칭 (모델이 형식을 약간 벗어난 경우)
+        String upper = content.toUpperCase();
+        if (upper.contains("🟢") || upper.contains("매수 신호") || upper.matches("(?s).*\\bBUY\\b.*"))  return SignalType.BUY;
+        if (upper.contains("🔴") || upper.contains("매도 신호") || upper.matches("(?s).*\\bSELL\\b.*")) return SignalType.SELL;
+        if (upper.contains("🟡") || upper.contains("관망 신호") || upper.matches("(?s).*\\bHOLD\\b.*")) return SignalType.HOLD;
+
+        log.warn("signal_type 파싱 실패, HOLD로 기본값 처리. content 앞 200자: {}",
+                content.length() > 200 ? content.substring(0, 200) : content);
         return SignalType.HOLD;
     }
 

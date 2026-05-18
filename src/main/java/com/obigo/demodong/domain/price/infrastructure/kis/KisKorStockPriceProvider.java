@@ -42,7 +42,13 @@ public class KisKorStockPriceProvider {
                     .bodyToMono(KisCurrentPriceResponse.class)
                     .block();
 
-            if (response == null || response.output() == null) return null;
+            if (response == null || response.output() == null) {
+                log.warn("[KIS-KOR] 현재가 응답 없음 - ticker: {}, rt_cd: {}, msg: {}",
+                        stock.getTicker(),
+                        response != null ? response.rtCd() : "null",
+                        response != null ? response.msg1() : "null");
+                return null;
+            }
             return new BigDecimal(response.output().stckPrpr());
         } catch (Exception e) {
             log.warn("[KIS-KOR] 현재가 조회 실패 - ticker: {}, error: {}", stock.getTicker(), e.getMessage());
@@ -69,7 +75,13 @@ public class KisKorStockPriceProvider {
                     .bodyToMono(Kis52WeekResponse.class)
                     .block();
 
-            if (response == null || response.output() == null) return Optional.empty();
+            if (response == null || response.output() == null) {
+                log.warn("[KIS-KOR] 52주 응답 없음 - ticker: {}, rt_cd: {}, msg: {}",
+                        stock.getTicker(),
+                        response != null ? response.rtCd() : "null",
+                        response != null ? response.msg1() : "null");
+                return Optional.empty();
+            }
             Kis52WeekOutput o = response.output();
             if (o.w52Hgpr() == null || o.w52Lwpr() == null
                     || o.w52Hgpr().isBlank() || o.w52Lwpr().isBlank()) return Optional.empty();
@@ -112,10 +124,16 @@ public class KisKorStockPriceProvider {
                     .bodyToMono(KisDailyPriceResponse.class)
                     .block();
 
-            if (response == null || response.output2() == null) return cached;
+            if (response == null || response.output() == null) {
+                log.warn("[KIS-KOR] 일별 시세 응답 없음 - ticker: {}, rt_cd: {}, msg: {}",
+                        stock.getTicker(),
+                        response != null ? response.rtCd() : "null",
+                        response != null ? response.msg1() : "null");
+                return cached;
+            }
 
             List<PriceSnapshot> fetched = new ArrayList<>();
-            for (KisDailyItem item : response.output2()) {
+            for (KisDailyItem item : response.output()) {
                 if (item.stckBsopDate() == null || item.stckClpr() == null) continue;
                 LocalDate date = LocalDate.parse(item.stckBsopDate(), KIS_DATE);
                 if (priceSnapshotRepository.findByStockAndRecordedDate(stock, date).isPresent()) continue;
@@ -146,13 +164,21 @@ public class KisKorStockPriceProvider {
     // ──────────── Response Records ────────────
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record KisCurrentPriceResponse(KisCurrentOutput output) {}
+    record KisCurrentPriceResponse(
+            KisCurrentOutput output,
+            @JsonProperty("rt_cd") String rtCd,
+            @JsonProperty("msg1")  String msg1
+    ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record KisCurrentOutput(@JsonProperty("stck_prpr") String stckPrpr) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Kis52WeekResponse(Kis52WeekOutput output) {}
+    record Kis52WeekResponse(
+            Kis52WeekOutput output,
+            @JsonProperty("rt_cd") String rtCd,
+            @JsonProperty("msg1")  String msg1
+    ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Kis52WeekOutput(
@@ -164,7 +190,11 @@ public class KisKorStockPriceProvider {
     public record Kis52WeekRange(BigDecimal high52, BigDecimal low52) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record KisDailyPriceResponse(@JsonProperty("output2") List<KisDailyItem> output2) {}
+    record KisDailyPriceResponse(
+            @JsonProperty("output")  List<KisDailyItem> output,
+            @JsonProperty("rt_cd")   String rtCd,
+            @JsonProperty("msg1")    String msg1
+    ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record KisDailyItem(
