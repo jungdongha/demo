@@ -1,7 +1,6 @@
 package com.obigo.demodong.domain.price.infrastructure.kis;
 
 import com.obigo.demodong.global.common.infrastructure.kis.KisProperties;
-import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -22,15 +21,8 @@ public class KisTokenManager {
 
     private final AtomicReference<String> accessToken = new AtomicReference<>();
 
-    @PostConstruct
-    public void init() {
-        log.info("[KIS] baseUrl={}, appKey={}...", kisProperties.baseUrl(),
-                kisProperties.appKey() != null ? kisProperties.appKey().substring(0, Math.min(8, kisProperties.appKey().length())) : "NULL");
-        refreshToken();
-    }
-
     // 23시간마다 자동 갱신 (KIS 토큰 유효시간 24h)
-    // initialDelay: @PostConstruct에서 이미 발급했으므로 첫 스케줄 실행은 23시간 뒤
+    // 최초 토큰은 getAccessToken() 최초 호출 시 lazy 발급 — 앱 재시작 시 rate limit(1회/분) 방지
     @Scheduled(fixedDelay = 23 * 60 * 60 * 1000L, initialDelay = 23 * 60 * 60 * 1000L)
     public void refreshToken() {
         try {
@@ -61,6 +53,9 @@ public class KisTokenManager {
     }
 
     public String getAccessToken() {
+        if (accessToken.get() == null) {
+            refreshToken();
+        }
         return accessToken.get();
     }
 

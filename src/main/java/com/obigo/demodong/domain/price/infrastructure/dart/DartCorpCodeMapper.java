@@ -12,10 +12,10 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
-import org.w3c.dom.Document;
-import org.w3c.dom.NodeList;
+import org.xml.sax.Attributes;
+import org.xml.sax.helpers.DefaultHandler;
 
-import javax.xml.parsers.DocumentBuilderFactory;
+import javax.xml.parsers.SAXParserFactory;
 import java.io.ByteArrayInputStream;
 import java.util.HashMap;
 import java.util.List;
@@ -150,28 +150,41 @@ public class DartCorpCodeMapper {
             while ((entry = zis.getNextEntry()) != null) {
                 if (!entry.getName().toUpperCase().contains("CORPCODE")) continue;
 
-                Document doc = DocumentBuilderFactory.newInstance()
-                        .newDocumentBuilder()
-                        .parse(zis);
+                // SAX 파서: DOM과 달리 XML 전체를 메모리에 올리지 않고 스트리밍 처리 → OOM 방지
+                SAXParserFactory.newInstance().newSAXParser().parse(zis, new DefaultHandler() {
+                    private final StringBuilder buf = new StringBuilder();
+                    private String corpCode, stockCode, corpName;
 
-                NodeList list = doc.getElementsByTagName("list");
-                for (int i = 0; i < list.getLength(); i++) {
-                    NodeList children = list.item(i).getChildNodes();
-                    String corpCode = null, stockCode = null, corpName = null;
-                    for (int j = 0; j < children.getLength(); j++) {
-                        String tag = children.item(j).getNodeName();
-                        String val = children.item(j).getTextContent().trim();
-                        if ("corp_code".equals(tag))  corpCode  = val;
-                        if ("stock_code".equals(tag)) stockCode = val;
-                        if ("corp_name".equals(tag))  corpName  = val;
+                    @Override
+                    public void startElement(String uri, String localName, String qName, Attributes attributes) {
+                        if ("list".equals(qName)) { corpCode = null; stockCode = null; corpName = null; }
+                        buf.setLength(0);
                     }
-                    if (corpCode != null && stockCode != null && !stockCode.isBlank()) {
-                        result.put(stockCode, corpCode);
-                        if (corpName != null && !corpName.isBlank()) {
-                            newNameMap.put(corpName, stockCode);
+
+                    @Override
+                    public void characters(char[] ch, int start, int length) {
+                        buf.append(ch, start, length);
+                    }
+
+                    @Override
+                    public void endElement(String uri, String localName, String qName) {
+                        String val = buf.toString().trim();
+                        switch (qName) {
+                            case "corp_code"  -> corpCode  = val;
+                            case "stock_code" -> stockCode = val;
+                            case "corp_name"  -> corpName  = val;
+                            case "list" -> {
+                                if (corpCode != null && stockCode != null && !stockCode.isBlank()) {
+                                    result.put(stockCode, corpCode);
+                                    if (corpName != null && !corpName.isBlank()) {
+                                        newNameMap.put(corpName, stockCode);
+                                    }
+                                }
+                            }
                         }
+                        buf.setLength(0);
                     }
-                }
+                });
                 break;
             }
         }
