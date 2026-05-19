@@ -51,8 +51,9 @@ public class DartCorpCodeMapper {
         log.info("[DART] corp_code 자동 매핑 시작");
         try {
             sync();
-        } catch (Exception e) {
-            log.warn("[DART] corp_code 매핑 실패 (서비스 기동에는 영향 없음): {}", e.getMessage());
+        } catch (Throwable t) {
+            // Error(reactor BlockingOperationError 등) 포함 전체 방어 — 기동 차단 방지
+            log.warn("[DART] corp_code 매핑 실패 (서비스 기동에는 영향 없음): {}", t.getMessage());
         }
     }
 
