@@ -1,10 +1,10 @@
 # Jurine — Agent Memory
-# Last Updated: 2026-05-15
+# Last Updated: 2026-05-21
 
 ## 현재 상태
 
-phase: Phase 9 구현 완료 (Phase 6 보류, Phase 7 RAG 스킵)
-branch: feature/phase9
+phase: Phase 9.5 구현 완료 (Quant Feature Engine 고도화 — 3개 신규 Feature)
+branch: feature/quant-logic
 base_package: com.obigo.demodong
 
 ## 완료된 도메인
@@ -18,6 +18,32 @@ base_package: com.obigo.demodong
 | telegram | domain/telegram | 구현 중 (봇 알림) |
 
 ## 주요 변경 이력
+
+- 2026-05-21: **Phase 9.5 Quant Feature Engine 고도화** (branch: feature/quant-logic)
+  - 3개 신규 Feature Calculator 추가 (총 7개 Feature)
+  - [신규] `QuantFundamentalData` record — PER/PBR/목표주가/현재가 (nullable 허용, `stub()` 팩토리)
+  - [신규] `QuantFundamentalPort` 인터페이스 — DIP 적용, KOR/USA 분기 표준화
+  - [신규] `KisFundamentalAdapter` — KIS `/uapi/domestic-stock/v1/quotations/inquire-price` 연동 (per, pbr, stck_prpr)
+    - USA: `QuantFundamentalData.stub(BigDecimal.ZERO)` 반환 (Phase 10에서 Alpha Vantage 연동 예정)
+  - [신규] `ValuationScoreCalculator` — PER·PBR 저평가도 합산 점수 (가중치 20%)
+    - PER ≤10→100점, 10~30→선형, ≥30→0점; PBR ≤1→100점, 1~3→선형, ≥3→0점; 적자(PER=null)→50점 중립
+  - [신규] `TargetPriceUpsideCalculator` — 증권사 목표주가 대비 상승 여력 (가중치 15%)
+    - targetPrice=null(Stub) → 50점 중립; 30% 상승여력 = 100점 만점; 음수 = 0점
+  - [신규] `SectorRelativeStrengthCalculator` — 섹터 평균 대비 종목 상대 강도 (가중치 15%)
+    - selfMomentum - sectorAvgMomentum5d → ±10%p 범위 정규화; 데이터 부족 시 50점 중립
+  - [수정] `QuantFeatureInput` — 2개 필드 추가: `QuantFundamentalData fundamentals`, `double sectorAvgMomentum5d`
+  - [수정] `FeatureType` enum — 3개 값 추가: `VALUATION_SCORE`, `TARGET_PRICE_UPSIDE`, `SECTOR_RELATIVE_STRENGTH`
+  - [수정] `QuantScore` record — 4개 필드 추가: `valuationScore`, `targetPriceUpsideScore`, `sectorRelativeScore`, `fundamentals`
+  - [수정] `QuantScoringService` — 가중치 재조정: VOLUME 35%→20%, MOMENTUM 30%→20%, NEWS 20%→10%, +VALUATION 20%, +TARGET 15%, +SECTOR 15%
+    - 총 가중치 합 0.85 → 1.00; featureRawValues `Map.of()` → `new HashMap<>()` (7개 항목); missing feature 기본값 0.0 → 50.0
+  - [수정] `QuantFeatureSnapshot` — 7개 컬럼 추가: `perValue`, `pbrValue`, `valuationScore`, `targetPrice`, `targetPriceUpsidePct`, `targetPriceScore`, `sectorRelativeScore`; `create()` 시그니처 단순화 → `create(QuantSignal, QuantScore, String)`
+  - [수정] `QuantEngineUseCase` — 2-pass 배치 구조: Pass1(데이터 수집) → 섹터 평균 사전 집계 → Pass2(Score 계산); `QuantFundamentalPort` 주입; LLM 리포트 프롬프트에 PER/PBR/목표주가/섹터강도 추가
+  - [수정] `QuantFeatureSnapshotResponse` DTO — 7개 신규 필드 추가
+  - [수정] `QuantScoringServiceTest` — 8→10개 케이스 확장; 밸류에이션/섹터 강도 테스트 추가
+  - [신규] `ValuationScoreCalculatorTest` — Happy Path 3케이스 + Edge Cases 3케이스
+  - [신규] `TargetPriceUpsideCalculatorTest` — Happy Path 3케이스 + Edge Cases 4케이스
+  - [신규] `SectorRelativeStrengthCalculatorTest` — Happy Path 3케이스 + Edge Cases 3케이스
+  - 빌드: BUILD SUCCESSFUL, 전체 퀀트 테스트 통과
 
 - 2026-05-15: **Phase 9 Quant Signal Engine MVP 구현** (branch: feature/phase9)
   - [신규] `QuantUniverse` 엔티티 — 분석 대상 유니버스 (quant_universe 테이블, KOR+USA TOP20)
@@ -121,7 +147,7 @@ stock_price: KIS API (KOR + USA)
 corporate_disclosure: DART API (KOR 종목 공시)
 ```
 
-## 다음 작업 예정 (Phase 8 완료 → Phase 9 대기)
+## 다음 작업 예정 (Phase 9.5 완료 → Phase 10 대기)
 
 ### Phase 3 ~ 5 ✅ 완료
 - [x] 모닝 브리핑 배치 (BriefingScheduler — KOR 08:50, USA 22:20)
@@ -149,7 +175,19 @@ corporate_disclosure: DART API (KOR 종목 공시)
 - [x] QuantSignal + QuantFeatureSnapshot 저장
 - [x] /api/quant/** 5개 API 엔드포인트
 - [x] 일배치 스케줄러 (KOR 09:10 / USA 22:30)
-- USA 데이터: Alpha Vantage Stub (Phase 10에서 실제 연동)
+
+### Phase 9.5 ✅ 완료 (2026-05-21)
+- [x] `QuantFundamentalPort` + `KisFundamentalAdapter` — KIS 실시간 PER/PBR 조회 (KOR 전용)
+- [x] `QuantFundamentalData` 도메인 모델 (nullable PER/PBR/targetPrice/currentPrice)
+- [x] `ValuationScoreCalculator` (가중치 20%) — PER·PBR 저평가도 합산 점수
+- [x] `TargetPriceUpsideCalculator` (가중치 15%) — 목표주가 상승여력 (Stub: 50점 중립)
+- [x] `SectorRelativeStrengthCalculator` (가중치 15%) — 섹터 평균 대비 상대 강도
+- [x] 가중치 재조정 (총합 1.00): VOLUME 20% / MOMENTUM 20% / NEWS 10% / VALUATION 20% / TARGET 15% / SECTOR 15%
+- [x] QuantFeatureSnapshot 7개 신규 컬럼 추가
+- [x] QuantEngineUseCase 2-pass 배치 구조 (섹터 평균 사전 집계)
+- [x] 신규 Calculator 단위 테스트 3종 (총 퀀트 테스트 20+ 케이스)
+- USA 목표주가: Stub (Phase 10에서 Naver/Alpha Vantage 연동 예정)
+- USA 펀더멘털: Stub (Phase 10에서 Alpha Vantage 실제 연동 예정)
 - RAG 통합: Phase 7 미구현으로 생략 (Phase 10+에서 재검토)
 
 ### Phase 10 ~ 11 (대기)
@@ -171,11 +209,17 @@ corporate_disclosure: DART API (KOR 종목 공시)
 - Phase 8 카테고리: 공시호재 | 공시악재 | 수급집중 | 실적개선 | 저평가해소 | 섹터모멘텀 | 뉴스모멘텀
 - Phase 8 실패 판정: BUY alpha10d < -5%, SELL alpha10d > +5%
 - Phase 8 피드백 API: /api/feedback/stats (카테고리 통계), /api/feedback/recent, /api/feedback/{reportId}
-- Quant 도메인 모델: `.claude/references/data-model/quant/quant_signal.yaml` (Phase 9 구현 반영됨)
+- Quant 도메인 모델: `.claude/references/data-model/quant/quant_signal.yaml` (Phase 9.5 구현 반영됨)
 - Quant 에러코드: 405xx (주의: 404xx는 watchlist 도메인이 사용 중)
 - Module Guard: Core ↔ Quant 직접 의존 금지. QuantNewsPort/QuantNewsCrawlerAdapter로 신호 도메인 Crawler 격리.
 - KisTokenManager: Quant KisQuantDataAdapter에서 재활용 (Spring Bean 공유)
 - QuantDataPort: KOR=KisQuantDataAdapter(구현), USA=Stub(Phase 10에서 AlphaVantage 실제 연동)
+- QuantFundamentalPort: KOR=KisFundamentalAdapter(KIS inquire-price), USA=Stub (Phase 10 예정)
+- Quant 가중치 (Phase 9.5): VOLUME 20% / MOMENTUM 20% / NEWS 10% / VALUATION 20% / TARGET_PRICE 15% / SECTOR_RELATIVE 15% + MARKET_REGIME 직접 보정
+- KisFundamentalAdapter: per≤0 또는 pbr≤0 → null 처리 (적자 기업 대응)
+- QuantFeatureInput 8개 파라미터: ticker, stockName, market, priceHistory, recentNews, indexReturn5d, fundamentals(nullable), sectorAvgMomentum5d
+- QuantEngineUseCase 2-pass: collectAllData() → computeSectorAvgMomentums() → calculateScore()
+- TargetPriceUpside Stub: targetPrice=null → 50점 중립 (Phase 10에서 네이버금융 스크래핑 예정)
 - Quant 패키지: domain.quant.domain.*, domain.quant.application.*, domain.quant.presentation.*, domain.quant.infrastructure.*
 - QuantUniverse 초기화: QuantUniverseInitializer @PostConstruct — 비어있을 때만 KOR10+USA10 삽입
 - Quant 스케줄러: KOR 09:10 / USA 22:30 (CRISIS 국면 시 자동 건너뜀)

@@ -1,0 +1,300 @@
+# Feature Specification
+# Status: Draft
+# Last Updated: 2026-05-19
+
+meta:
+  id: FEAT-QUANT-02
+  title: "Quant Feature Engine 고도화 — 펀더멘털 · 목표주가 · 섹터 상대 강도"
+  type: Feature
+  phase: "Phase 9.5 (Phase 10 준비)"
+  author: Agent
+
+overview:
+  summary: >
+    현재 4개 Feature(거래량·모멘텀·뉴스·시장국면)에
+    재무 밸류에이션(P/E·P/B), 목표주가 상승 여력, 섹터 내 상대 강도 3개를 추가하여
+    Quant Score의 다차원 분석력을 강화한다.
+  user_story: >
+    As a 주린이 투자자, I want 단기 모멘텀뿐 아니라 '싸게 사는지',
+    '전문가가 어떻게 보는지', '섹터 내에서 강한지'를 한눈에 확인하고 싶다.
+  goals:
+    - "P/E·P/B 기반 저평가 여부 → 단기 하락이 실적악화인지 단순 조정인지 구분"
+    - "증권사 평균 목표주가 대비 괴리율 → 전문가 컨센서스와 AI 판단 비교"
+    - "유니버스 내 섹터 동종업체 대비 상대 강도 → 종목 고유 모멘텀 vs 섹터 동반 상승 구분"
+
+# ─────────────────────────────────────────
+# 현재 vs 변경 요약
+# ─────────────────────────────────────────
+current_state:
+  features: 4개 (VOLUME_RATIO_5D 35%, PRICE_MOMENTUM_5D 30%, NEWS_FRESHNESS 20%, MARKET_REGIME 보정)
+  max_score_before_regime: 85점 (가중치 합계 = 0.85)
+  data_sources: [KIS 일별시세, 뉴스크롤러, KOSPI 지수]
+
+target_state:
+  features: 7개 (기존 4개 + 신규 3개)
+  weight_total: "1.00 (가중치 합 = 100%, MARKET_REGIME 보정 유지)"
+  new_data_sources: [KIS inquire-price(PER/PBR), Naver Finance 목표주가, 유니버스 내 섹터 집계]
+
+# ─────────────────────────────────────────
+# 신규 Feature 정의
+# ─────────────────────────────────────────
+new_features:
+
+  VALUATION_SCORE:
+    description: "P/E·P/B 기반 저평가도. 낮을수록(저평가) 점수 ↑"
+    weight: 20%
+    data_source: "KIS `/uapi/domestic-stock/v1/quotations/inquire-price` (per, pbr 필드 제공)"
+    formula: |
+      perScore  = per <= 0  → 50 (데이터 없음)
+                  per < 10  → 100
+                  per < 20  → 50
+                  per >= 30 → 0
+                  else      → 선형 보간 (10~30 구간)
+      pbrScore  = pbr <= 0  → 50 (데이터 없음)
+                  pbr < 1   → 100
+                  pbr < 2   → 50
+                  pbr >= 3  → 0
+                  else      → 선형 보간 (1~3 구간)
+      valuationScore = (perScore + pbrScore) / 2
+    normalization: "0~100 (이미 정규화 포함)"
+    feasibility: "✅ KIS API 이미 통합됨. inquire-price endpoint 추가 호출만 필요."
+    usa_support: "KIS USA에서도 동일 endpoint로 PER/PBR 제공 여부 확인 필요. 없으면 0.5 중간값(50점) 반환."
+
+  TARGET_PRICE_UPSIDE:
+    description: "증권사 평균 목표주가 대비 현재가 상승 여력 %. 여력 클수록 점수 ↑"
+    weight: 15%
+    data_source: "Naver Finance 컨센서스 스크래핑 (KOR). USA는 Stub(50점)."
+    formula: |
+      upside% = (targetPrice - currentPrice) / currentPrice * 100
+      normalized = clamp(upside% / 30.0 * 100, 0, 100)
+      # 30% 상승 여력 → 만점 100점
+      # 0% 이하(고평가) → 0점
+      # 데이터 없음 → 50점 (중립)
+    naver_url: "https://finance.naver.com/item/coinfo.naver?code={6자리 ticker}"
+    naver_selector: "CSS selector — 컨센서스 목표주가 영역 (구현 시 파악 필요)"
+    feasibility: "⚠️ Naver Finance 스크래핑 필요. HTML 구조 변경 리스크 있음. 실패 시 50점 반환으로 방어."
+    usa_support: "Stub 50점 반환 (Phase 10에서 Alpha Vantage 컨센서스 연동 예정)"
+
+  SECTOR_RELATIVE_STRENGTH:
+    description: "유니버스 내 동일 섹터 평균 5일 수익률 대비 현재 종목의 상대 강도"
+    weight: 15%
+    data_source: "QuantUniverse 내 동일 섹터 종목들의 priceHistory (이미 수집된 데이터 재활용)"
+    formula: |
+      sectorAvg5dMomentum = 동일 섹터 종목들의 priceMomentum5d 평균
+      relative = ticker.priceMomentum5d - sectorAvg5dMomentum
+      normalized = clamp((relative + 10) / 20.0 * 100, 0, 100)
+      # ±10%p 범위로 정규화 (상대강도 +10%p 이상 → 100점, -10%p 이하 → 0점)
+      # 섹터 내 종목이 1개뿐 → 50점 (비교 불가)
+    feasibility: "✅ 별도 외부 API 불필요. QuantEngineUseCase에서 2-pass 배치로 사전 집계."
+    two_pass_required: true
+
+# ─────────────────────────────────────────
+# 가중치 재조정
+# ─────────────────────────────────────────
+weight_rebalancing:
+  rationale: "신규 3개 Feature 추가로 기존 가중치(합 0.85)를 1.00으로 재조정"
+  before:
+    VOLUME_RATIO_5D:   35%
+    PRICE_MOMENTUM_5D: 30%
+    NEWS_FRESHNESS:    20%
+    MARKET_REGIME:     "보정 (-10~+10)"
+  after:
+    VOLUME_RATIO_5D:          20%   # -15
+    PRICE_MOMENTUM_5D:        20%   # -10
+    NEWS_FRESHNESS:           10%   # -10
+    VALUATION_SCORE:          20%   # new
+    TARGET_PRICE_UPSIDE:      15%   # new
+    SECTOR_RELATIVE_STRENGTH: 15%   # new
+    MARKET_REGIME:            "보정 유지 (-10~+10)"
+  total: "100% (가중치 합계 = 1.00)"
+
+# ─────────────────────────────────────────
+# 기술 스펙
+# ─────────────────────────────────────────
+technical_spec:
+  api:
+    - note: "신규 REST API 없음. 기존 /api/quant/** 응답에 새 Feature 값이 자동 포함됨."
+    - affected_endpoints:
+        - "GET /api/quant/top-signals → QuantFeatureSnapshotResponse에 신규 필드 추가"
+        - "GET /api/quant/scores/{ticker} → QuantScoreDetailResponse에 신규 Feature 값 추가"
+
+  new_components:
+    domain_models:
+      - name: QuantFundamentalData
+        type: record
+        package: "domain.quant.domain.model"
+        fields:
+          - "per: BigDecimal (nullable)"
+          - "pbr: BigDecimal (nullable)"
+          - "targetPrice: BigDecimal (nullable)"
+          - "currentPrice: BigDecimal"
+
+    ports:
+      - name: QuantFundamentalPort
+        type: interface
+        package: "domain.quant.domain.port"
+        methods:
+          - "fetchFundamentals(String ticker, MarketType market): QuantFundamentalData"
+
+    adapters:
+      - name: KisFundamentalAdapter
+        implements: QuantFundamentalPort
+        package: "domain.quant.infrastructure"
+        description: "KIS inquire-price로 per, pbr, 현재가 조회. USA는 PER/PBR 없으면 null 반환."
+        kis_endpoint: "/uapi/domestic-stock/v1/quotations/inquire-price"
+        fields_used: ["stck_prpr(현재가)", "per", "pbr"]
+
+      - name: NaverConsensusCrawler
+        implements: "QuantFundamentalPort (목표주가 담당) 또는 별도 주입"
+        package: "domain.quant.infrastructure"
+        description: "Naver Finance 컨센서스 목표주가 스크래핑. 실패 시 null 반환."
+        strategy: "KisFundamentalAdapter가 기본 담당, targetPrice는 NaverConsensusCrawler로 보완 (Optional)"
+        failure_handling: "스크래핑 실패 → targetPrice = null → 50점 반환"
+
+    calculators:
+      - name: ValuationScoreCalculator
+        feature: VALUATION_SCORE
+        reads_from: "input.fundamentals().per(), input.fundamentals().pbr()"
+
+      - name: TargetPriceUpsideCalculator
+        feature: TARGET_PRICE_UPSIDE
+        reads_from: "input.fundamentals().targetPrice(), input.fundamentals().currentPrice()"
+
+      - name: SectorRelativeStrengthCalculator
+        feature: SECTOR_RELATIVE_STRENGTH
+        reads_from: "input.priceMomentum5d(), input.sectorPeerMomentums()"
+
+  modified_components:
+    - name: FeatureType (enum)
+      change: "VALUATION_SCORE, TARGET_PRICE_UPSIDE, SECTOR_RELATIVE_STRENGTH 추가"
+
+    - name: QuantFeatureInput (record)
+      change: |
+        신규 필드 추가:
+          fundamentals: QuantFundamentalData   // nullable — 없으면 각 Calculator가 중간값 반환
+          sectorPeerMomentums: Map<String, Double>  // ticker → 5d momentum%, 섹터 강도 계산용
+
+    - name: QuantScoringService
+      change: |
+        - 가중치 상수 재조정 (위 weight_rebalancing 기준)
+        - 3개 신규 Feature Score 계산 추가
+        - featureRawValues Map에 신규 3개 포함
+
+    - name: QuantFeatureSnapshot (entity)
+      change: |
+        신규 컬럼 추가 (모두 nullable):
+          per_value             DECIMAL(8,2)   — 현재 PER
+          pbr_value             DECIMAL(6,2)   — 현재 PBR
+          valuation_score       DECIMAL(5,2)   — 밸류에이션 점수
+          target_price          DECIMAL(12,2)  — 컨센서스 목표주가
+          target_price_upside_pct DECIMAL(6,2) — 괴리율 %
+          target_price_score    DECIMAL(5,2)   — 목표주가 점수
+          sector_avg_momentum   DECIMAL(6,2)   — 섹터 평균 5일 모멘텀
+          sector_relative_score DECIMAL(5,2)   — 섹터 상대 강도 점수
+        static factory method create() 파라미터 추가
+
+    - name: QuantEngineUseCase
+      change: |
+        배치 흐름을 2-pass로 변경:
+          [Pass 1] 전체 유니버스 종목 가격 + 펀더멘털 데이터 수집
+          [Pass 2] 섹터 평균 모멘텀 집계 → 각 종목 QuantFeatureInput 조립 → Score 계산
+        기존 단일 루프 → pre-collect 후 scoring 루프 분리
+
+  database:
+    entities:
+      - name: QuantFeatureSnapshot
+        action: Update
+        fields: "위 신규 컬럼 8개 (nullable, ALTER TABLE 또는 Hibernate ddl-auto 활용)"
+    migration_strategy: "spring.jpa.hibernate.ddl-auto=update (dev/prod 동일) — nullable 컬럼 추가이므로 무중단"
+
+# ─────────────────────────────────────────
+# 데이터 흐름 (변경 후)
+# ─────────────────────────────────────────
+data_flow:
+  - step: 1
+    action: "QuantSignalScheduler 트리거 (KOR 09:10 / USA 22:30)"
+  - step: 2
+    action: "QuantEngineUseCase.runBatch(MarketType) — [Pass 1] 유니버스 전체 종목 데이터 수집"
+    details:
+      - "QuantDataPort.fetchRecentPrices() — 가격 데이터"
+      - "QuantFundamentalPort.fetchFundamentals() — PER/PBR/목표주가 (KIS + Naver)"
+      - "QuantNewsPort.fetchNews() — 뉴스"
+  - step: 3
+    action: "[Pass 1 집계] 섹터별 평균 5일 모멘텀 계산 (sectorPeerMomentums Map 생성)"
+  - step: 4
+    action: "[Pass 2] 각 종목별 QuantFeatureInput 조립 + Score 계산"
+    details:
+      - "7개 Calculator 실행 (기존 4개 + 신규 3개)"
+      - "QuantScoringService: 가중치 재조정 합산 + regimeBonus"
+  - step: 5
+    action: "RiskFilterService.filter() — 기존 3개 필터 유지"
+  - step: 6
+    action: "selectTop3()"
+  - step: 7
+    action: "LLM 리포트 생성 — 프롬프트에 PER, 목표주가, 섹터 강도 정보 추가"
+  - step: 8
+    action: "QuantSignal + QuantFeatureSnapshot(신규 필드 포함) 저장"
+
+# ─────────────────────────────────────────
+# 검증 규칙
+# ─────────────────────────────────────────
+validation_rules:
+  - "데이터 수집 실패 시 중립 점수(50) 반환 — 배치 전체 실패 방지"
+  - "fundamentals == null → ValuationCalculator, TargetPriceCalculator 각각 50점 반환"
+  - "섹터 내 종목 1개뿐 → SectorRelativeStrength 50점 반환"
+  - "목표주가 ≤ 0 → TargetPriceUpsideCalculator 50점 반환"
+  - "PER/PBR ≤ 0 → 해당 항목 50점 처리 (데이터 없음, ex. 적자 기업)"
+  - "가중치 합 == 1.00 검증 — 컴파일 타임 상수로 관리"
+
+# ─────────────────────────────────────────
+# 테스트 전략
+# ─────────────────────────────────────────
+testing_strategy:
+  target_class: "ValuationScoreCalculatorTest, TargetPriceUpsideCalculatorTest, SectorRelativeStrengthCalculatorTest"
+  happy_path:
+    - "PER=10, PBR=1.5 → 적절한 밸류에이션 점수 반환"
+    - "목표주가 상승 여력 30% → 100점 반환"
+    - "목표주가 상승 여력 0% → 0점 반환"
+    - "섹터 내 상대 강도 +10%p → 100점 반환"
+    - "섹터 내 상대 강도 -10%p → 0점 반환"
+  edge_cases:
+    - "PER=0 (적자 기업) → 50점 반환"
+    - "목표주가 null → 50점 반환"
+    - "섹터 내 종목 1개 (비교 불가) → 50점 반환"
+    - "전체 가중치 합 == 1.00 검증"
+  integration:
+    - "QuantScoringServiceTest: 7개 feature 가중치 합산 → 0~100 범위 내"
+
+# ─────────────────────────────────────────
+# 미결 질문 (구현 전 확인 필요)
+# ─────────────────────────────────────────
+open_questions:
+  - id: Q1
+    question: "Naver Finance 목표주가 스크래핑이 불안정하다면, 초기 구현을 Stub(50점)으로만 하고 나중에 붙일까요?"
+    default: "Stub 먼저, Naver 크롤러는 별도 이슈로 분리 권장"
+  - id: Q2
+    question: "KIS USA inquire-price에서 PER/PBR 제공 여부 확인 필요. 없으면 USA 밸류에이션은 Stub(50점)."
+    default: "KOR 구현 우선, USA는 Stub"
+  - id: Q3
+    question: "가중치 재조정에 동의하시나요? (기존 거래량 35%→20%, 모멘텀 30%→20%, 뉴스 20%→10%)"
+    default: "위 재조정 기준 적용"
+
+# ─────────────────────────────────────────
+# 구현 순서
+# ─────────────────────────────────────────
+implementation_order:
+  1: "FeatureType enum에 3개 추가"
+  2: "QuantFundamentalData record 신규"
+  3: "QuantFundamentalPort 인터페이스 신규"
+  4: "KisFundamentalAdapter 구현 (KIS inquire-price → per, pbr, currentPrice)"
+  5: "NaverConsensusCrawler 구현 (목표주가 스크래핑 또는 Q1 결정에 따라 Stub)"
+  6: "QuantFeatureInput record 필드 추가 (fundamentals, sectorPeerMomentums)"
+  7: "ValuationScoreCalculator 구현"
+  8: "TargetPriceUpsideCalculator 구현"
+  9: "SectorRelativeStrengthCalculator 구현"
+  10: "QuantScoringService 가중치 재조정 + 3개 신규 Feature 반영"
+  11: "QuantFeatureSnapshot 엔티티 컬럼 추가 + create() 팩토리 메서드 수정"
+  12: "QuantEngineUseCase 2-pass 배치 개편 + 신규 데이터 수집 추가"
+  13: "QuantFeatureSnapshotResponse DTO 신규 필드 추가"
+  14: "단위 테스트 (Calculator 3개, ScoringService)"
+  15: "빌드 검증"

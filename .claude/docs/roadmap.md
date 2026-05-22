@@ -589,10 +589,16 @@ Quant Alert 발송           — 텔레그램 + API 응답
 
 ---
 
-## Phase 9 — [Quant] MVP: Feature Engineering + Scoring Engine
-# Last Updated: 2026-05-14
+## Phase 9 — [Quant] MVP: Feature Engineering + Scoring Engine ✅ 구현 완료 (2026-05-15)
+# Last Updated: 2026-05-21
 
 > **의존성**: Phase 7 (RAG 인프라) 완료 후 착수 권장. Phase 5 KIS API는 필수 선행 조건 (완료됨 ✅).
+>
+> **구현 완료**: 4개 MVP Feature (volume_ratio_5d, price_momentum_5d, news_freshness, market_regime),
+> Quant Scoring Engine, Risk Filter, QuantUniverse, 5개 API, 일배치 스케줄러
+>
+> **Phase 9.5 추가 구현** (2026-05-21): 3개 신규 Feature (valuation_score, target_price_upside, sector_relative_strength),
+> QuantFundamentalPort + KisFundamentalAdapter, 가중치 재조정 (총합 1.00), QuantEngineUseCase 2-pass 배치 구조
 
 ### 목표
 KOR/USA 시총 TOP20 대상으로 정량 점수를 산출하고, 상위 3개 후보를 AI가 해석하는 최소 동작 파이프라인을 완성한다.
@@ -753,6 +759,43 @@ public interface QuantDataPort {
 KisQuantDataAdapter          // KOR (KIS API — 기존 KisTokenManager 재활용)
 AlphaVantageQuantAdapter     // USA (Alpha Vantage)
 ```
+
+---
+
+---
+
+## Phase 9.5 — [Quant] Feature Engine 고도화 ✅ 구현 완료 (2026-05-21)
+
+> **목표**: Phase 9 MVP의 Feature 3개 추가 (밸류에이션 / 목표주가 / 섹터 상대강도) 및 가중치 재조정
+
+### 구현 내용
+
+| Feature | 가중치 | 데이터 소스 | 상태 |
+|---|---|---|---|
+| `valuation_score` | 20% | KIS inquire-price (PER/PBR) | ✅ 구현됨 (KOR 전용) |
+| `target_price_upside` | 15% | Stub (목표주가 null → 50점) | ✅ Stub 구현됨 |
+| `sector_relative_strength` | 15% | QuantEngineUseCase 섹터 평균 사전 집계 | ✅ 구현됨 |
+
+**가중치 재조정 (총합 0.85 → 1.00)**:
+
+| Feature | Phase 9 | Phase 9.5 |
+|---|---|---|
+| volume_ratio_5d | 35% | 20% |
+| price_momentum_5d | 30% | 20% |
+| news_freshness | 20% | 10% |
+| valuation_score | — | **20%** |
+| target_price_upside | — | **15%** |
+| sector_relative_strength | — | **15%** |
+
+**핵심 신규 컴포넌트**:
+- `QuantFundamentalData` record — PER/PBR/목표주가/현재가 (nullable, stub() 팩토리)
+- `QuantFundamentalPort` + `KisFundamentalAdapter` — KIS inquire-price 기반 KOR 실시간 펀더멘털
+- `ValuationScoreCalculator` / `TargetPriceUpsideCalculator` / `SectorRelativeStrengthCalculator`
+- `QuantEngineUseCase` 2-pass 리팩토링: 섹터 평균 사전 집계 후 상대강도 계산
+
+**Phase 10 연동 예정**:
+- 목표주가: 네이버금융/증권사 API 스크래핑 (현재 null Stub)
+- USA 펀더멘털: Alpha Vantage 실제 연동 (현재 Stub)
 
 ---
 

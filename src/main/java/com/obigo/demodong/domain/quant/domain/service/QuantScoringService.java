@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -19,20 +20,26 @@ import java.util.stream.Collectors;
 /**
  * Feature 값에 가중치를 부여하여 0~100점 종합 Quant Score 산출.
  *
- * 가중치 (MVP 기본값):
- *   VOLUME_RATIO_5D:    35%
- *   PRICE_MOMENTUM_5D:  30%
- *   NEWS_FRESHNESS:     20%
- *   MARKET_REGIME:      직접 보정 (-10 ~ +10)
+ * 가중치 (합계 = 1.00):
+ *   VOLUME_RATIO_5D:          20%
+ *   PRICE_MOMENTUM_5D:        20%
+ *   NEWS_FRESHNESS:           10%
+ *   VALUATION_SCORE:          20%
+ *   TARGET_PRICE_UPSIDE:      15%
+ *   SECTOR_RELATIVE_STRENGTH: 15%
+ *   MARKET_REGIME:            직접 보정 (-10 ~ +10)
  */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class QuantScoringService {
 
-    private static final double WEIGHT_VOLUME   = 0.35;
-    private static final double WEIGHT_MOMENTUM = 0.30;
-    private static final double WEIGHT_NEWS     = 0.20;
+    private static final double WEIGHT_VOLUME    = 0.20;
+    private static final double WEIGHT_MOMENTUM  = 0.20;
+    private static final double WEIGHT_NEWS      = 0.10;
+    private static final double WEIGHT_VALUATION = 0.20;
+    private static final double WEIGHT_TARGET    = 0.15;
+    private static final double WEIGHT_SECTOR    = 0.15;
 
     private final List<QuantFeatureCalculator> calculators;
     private final MarketRegimeService marketRegimeService;
@@ -48,11 +55,17 @@ public class QuantScoringService {
         double volumeScore    = getScore(results, FeatureType.VOLUME_RATIO_5D);
         double momentumScore  = getScore(results, FeatureType.PRICE_MOMENTUM_5D);
         double newsScore      = getScore(results, FeatureType.NEWS_FRESHNESS);
+        double valuationScore = getScore(results, FeatureType.VALUATION_SCORE);
+        double targetScore    = getScore(results, FeatureType.TARGET_PRICE_UPSIDE);
+        double sectorScore    = getScore(results, FeatureType.SECTOR_RELATIVE_STRENGTH);
         double regimeBonus    = getRaw(results, FeatureType.MARKET_REGIME);
 
-        double totalScore = (volumeScore * WEIGHT_VOLUME)
-                + (momentumScore * WEIGHT_MOMENTUM)
-                + (newsScore * WEIGHT_NEWS)
+        double totalScore = (volumeScore   * WEIGHT_VOLUME)
+                + (momentumScore  * WEIGHT_MOMENTUM)
+                + (newsScore      * WEIGHT_NEWS)
+                + (valuationScore * WEIGHT_VALUATION)
+                + (targetScore    * WEIGHT_TARGET)
+                + (sectorScore    * WEIGHT_SECTOR)
                 + regimeBonus;
 
         // 0~100 범위 보정
@@ -60,15 +73,18 @@ public class QuantScoringService {
 
         MarketRegime regime = marketRegimeService.analyze(input.indexReturn5d());
 
-        Map<FeatureType, Double> featureRawValues = Map.of(
-                FeatureType.VOLUME_RATIO_5D,   getRaw(results, FeatureType.VOLUME_RATIO_5D),
-                FeatureType.PRICE_MOMENTUM_5D, getRaw(results, FeatureType.PRICE_MOMENTUM_5D),
-                FeatureType.NEWS_FRESHNESS,    getRaw(results, FeatureType.NEWS_FRESHNESS),
-                FeatureType.MARKET_REGIME,     regimeBonus
-        );
+        Map<FeatureType, Double> featureRawValues = new HashMap<>();
+        featureRawValues.put(FeatureType.VOLUME_RATIO_5D,          getRaw(results, FeatureType.VOLUME_RATIO_5D));
+        featureRawValues.put(FeatureType.PRICE_MOMENTUM_5D,        getRaw(results, FeatureType.PRICE_MOMENTUM_5D));
+        featureRawValues.put(FeatureType.NEWS_FRESHNESS,           getRaw(results, FeatureType.NEWS_FRESHNESS));
+        featureRawValues.put(FeatureType.MARKET_REGIME,            regimeBonus);
+        featureRawValues.put(FeatureType.VALUATION_SCORE,          getRaw(results, FeatureType.VALUATION_SCORE));
+        featureRawValues.put(FeatureType.TARGET_PRICE_UPSIDE,      getRaw(results, FeatureType.TARGET_PRICE_UPSIDE));
+        featureRawValues.put(FeatureType.SECTOR_RELATIVE_STRENGTH, getRaw(results, FeatureType.SECTOR_RELATIVE_STRENGTH));
 
-        log.info("[Scoring] ticker={}, total={:.1f} (vol={:.1f}, mom={:.1f}, news={:.1f}, regime={})",
-                input.ticker(), totalScore, volumeScore, momentumScore, newsScore, regime);
+        log.info("[Scoring] ticker={}, total={:.1f} (vol={:.1f}, mom={:.1f}, news={:.1f}, val={:.1f}, tgt={:.1f}, sec={:.1f}, regime={})",
+                input.ticker(), totalScore, volumeScore, momentumScore, newsScore,
+                valuationScore, targetScore, sectorScore, regime);
 
         return new QuantScore(
                 input.ticker(),
@@ -79,6 +95,10 @@ public class QuantScoringService {
                 getRaw(results, FeatureType.VOLUME_RATIO_5D),
                 getRaw(results, FeatureType.PRICE_MOMENTUM_5D),
                 newsScore,
+                valuationScore,
+                targetScore,
+                sectorScore,
+                input.fundamentals(),
                 regime,
                 false,
                 null,
@@ -96,7 +116,7 @@ public class QuantScoringService {
 
     private double getScore(Map<FeatureType, QuantFeatureResult> results, FeatureType type) {
         QuantFeatureResult r = results.get(type);
-        return r != null ? r.normalizedScore() : 0.0;
+        return r != null ? r.normalizedScore() : 50.0;
     }
 
     private double getRaw(Map<FeatureType, QuantFeatureResult> results, FeatureType type) {
