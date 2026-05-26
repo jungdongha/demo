@@ -16,8 +16,8 @@
 ## 현재 상태
 
 ```yaml
-phase: 문서 재설계 완료 → Phase 2 (기술적 분석 엔진) 대기
-branch: main
+phase: Phase 2 완료 → Phase 3 (모멘텀 + 시장국면 + 전략 2개) 시작
+branch: feature/phase3
 base_package: com.obigo.demodong
 ```
 
@@ -80,19 +80,28 @@ Phase 2~6 결과물을 빠르게 확인하려면 API + 프론트를 한 Phase에
 ### Phase 1 ✅ 완료 (인프라)
 KIS API + DART API + Stock 엔티티
 
-### Phase 2 — 기술적 분석 엔진 + 전략 2개 (다음 작업)
-- TechnicalSnapshot record
-- RSI / MACD / Bollinger / EMA / SMA / ATR / ADX Calculator
-- **Mean Reversion** 전략 (RSI+BB+이격률 → 점수)
-- **Minervini** 전략 (EMA 정배열 8조건)
-- 단위 테스트 Calculator별 5개 이상
+### Phase 2 ✅ 완료 (기술적 분석 엔진 + 전략 2개)
+- `TechnicalSnapshot` record (17 필드)
+- `RSI/MACD/Bollinger/EMA/SMA/ATR/AdxCalculator` (ADX는 null stub)
+- `TechnicalAnalysisUseCase` (지표 계산 오케스트레이션)
+- **MeanReversionCalculator** (RSI 40% + BB 40% + 이격률 20%)
+- **MinerviniCalculator** (7조건 비례 계산, 조건 8은 Phase 3에서 활성화)
+- `StrategyCalculator` 인터페이스, `StrategyInput/Score` record
+- 단위 테스트 Calculator별 5개 이상 완료
 
-### Phase 3 — 모멘텀 + 시장 국면 + 전략 2개
-- 기간별 수익률 (1/3/6/12개월)
-- 상대강도(RS) 계산
-- Market Regime (BULL/SIDEWAYS/BEAR)
-- **Dual Momentum** 전략
-- **Seasonality** 전략 (업종 계절성 하드코딩 테이블)
+### Phase 3 — 모멘텀 + 시장 국면 + 전략 2개 ← 현재 작업
+**신규 컴포넌트:**
+- `MomentumSnapshot` record (return1m/3m/6m/12m, rsRating)
+- `ReturnCalculator` (거래일 기준 기간별 수익률)
+- `RsRatingCalculator` (초과수익률 ±20% → 0~100 정규화)
+- `MarketRegimeService` (STRONG_BULL/BULL/SIDEWAYS/BEAR/CRISIS)
+- `SeasonalityTable` (infrastructure, 업종별 월별 점수 하드코딩)
+- **DualMomentumCalculator** (절대 50% + 상대 50%)
+- **SeasonalityCalculator** (SeasonalityTable 조회)
+
+**수정:**
+- `StrategyInput` — momentum, marketRegime, sector 필드 추가
+- `MinerviniCalculator` — 조건 8 (rsRating ≥ 70) 정식 활성화
 
 ### Phase 4 — 재무 분석 엔진 + 전략 1개 (한국 완전지원)
 - DART 재무제표 파싱 (계정과목 매핑 테이블 관리)
@@ -150,3 +159,58 @@ corporate_disclosure: DART API (KOR 전용)
 - API 기본경로: /api
 - CORS: 개발환경 localhost:5173 허용
 - 미국 주식: 기술적 전략만 지원 (Phase 4 이후 재무 의존 전략 제외)
+
+---
+
+## 2026-05-26 추가 결정사항
+
+### 신규 기능 3개 추가 확정
+
+| 기능 | Phase | 핵심 결정 |
+|---|---|---|
+| Strategy Explanation | Phase 2부터 내재화 | StrategyScore → StrategyAnalysisResult |
+| Backtest Engine | Phase 3.5 | 기술적 전략 완성 직후, 비동기 실행 |
+| Meta Score | Phase 7.5 | 7개 전략 완성 후, 동적 가중치 적용 |
+
+### StrategyAnalysisResult — 핵심 변경
+```java
+// 모든 StrategyCalculator의 반환 타입
+record StrategyAnalysisResult(
+    StrategyType type,
+    int score,
+    String grade,
+    Map<String, Integer> detail,
+    List<String> positives,
+    List<String> negatives,
+    List<String> neutralFactors
+)
+
+// StrategyCalculator interface
+StrategyAnalysisResult calculate(StrategyInput input);
+```
+→ 이 타입은 Phase 2 첫 Calculator부터 적용. 나중에 바꾸면 전체 재설계.
+
+### 전체 Phase (최종)
+```
+Phase 1:   인프라 ✅
+Phase 2:   기술적 분석 + Mean Reversion + Minervini ← 다음 작업
+Phase 3:   모멘텀 + Dual Momentum + Seasonality
+Phase 3.5: Backtest Engine
+Phase 4:   재무 분석 + Piotroski
+Phase 5:   수급 분석 + CAN SLIM
+Phase 6:   Magic Formula (유니버스 배치)
+Phase 7:   REST API + React 프론트
+Phase 7.5: Meta Score + Strategy Explanation UI
+Phase 8:   AI 선택적 해석
+Phase 9:   비교 + 필터링
+```
+
+### Backtest 제약
+- 기술적 전략만 우선 (DART 과거 재무 데이터 없음)
+- PriceSnapshot 200일치 이상 있는 종목만
+- 비동기 실행 (@Async) + DB 저장 + polling
+
+### Meta Score 가중치
+- 기본: Technical 25% / Momentum 20% / Fundamental 35% / Growth 15% / Seasonal 5%
+- BULL: Momentum+5%, Growth+5%, Fundamental-10%
+- BEAR: Fundamental+10%, MeanReversion+5%, Momentum-15%

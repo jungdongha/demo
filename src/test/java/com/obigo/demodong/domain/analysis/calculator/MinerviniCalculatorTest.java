@@ -84,6 +84,52 @@ class MinerviniCalculatorTest {
             // 충족: c4, c5, c6, c7 = 4개 / 유효: 6개 → 67점
             assertThat(score.score()).isBetween(40, 75);
         }
+        @Test
+        @DisplayName("8조건 모두 충족(RS Rating 포함)하면 100점을 반환한다")
+        void 조건8개_100점() {
+            TechnicalSnapshot snapshot = buildSnapshot(
+                    BigDecimal.valueOf(200),  // currentPrice
+                    BigDecimal.valueOf(150),  // ema20
+                    BigDecimal.valueOf(140),  // ema50
+                    BigDecimal.valueOf(130),  // ema150
+                    BigDecimal.valueOf(120),  // ema200
+                    BigDecimal.valueOf(115),  // ema200OneMonthAgo (< ema200 → 우상향)
+                    BigDecimal.valueOf(250),  // high52w (200 >= 250*0.75=187.5 ✓)
+                    BigDecimal.valueOf(100)   // low52w  (200 >= 100*1.30=130 ✓)
+            );
+            // RS Rating 75 (>= 70 ✓)
+            com.obigo.demodong.domain.analysis.domain.model.MomentumSnapshot momentum =
+                    new com.obigo.demodong.domain.analysis.domain.model.MomentumSnapshot(
+                            BigDecimal.valueOf(10), BigDecimal.valueOf(15), BigDecimal.valueOf(20), BigDecimal.valueOf(25), 75
+                    );
+            StrategyInput input = new StrategyInput("TEST", MarketType.KOR, snapshot, momentum, null, null);
+            StrategyScore score = calculator.calculate(input);
+            assertThat(score.score()).isEqualTo(100);
+        }
+
+        @Test
+        @DisplayName("RS Rating 조건만 미충족 시 7/8 충족으로 88점을 반환한다")
+        void RS정격미달_88점() {
+            TechnicalSnapshot snapshot = buildSnapshot(
+                    BigDecimal.valueOf(200),  // currentPrice
+                    BigDecimal.valueOf(150),  // ema20
+                    BigDecimal.valueOf(140),  // ema50
+                    BigDecimal.valueOf(130),  // ema150
+                    BigDecimal.valueOf(120),  // ema200
+                    BigDecimal.valueOf(115),  // ema200OneMonthAgo (< ema200 → 우상향)
+                    BigDecimal.valueOf(250),  // high52w (200 >= 250*0.75=187.5 ✓)
+                    BigDecimal.valueOf(100)   // low52w  (200 >= 100*1.30=130 ✓)
+            );
+            // RS Rating 65 (< 70 ✗)
+            com.obigo.demodong.domain.analysis.domain.model.MomentumSnapshot momentum =
+                    new com.obigo.demodong.domain.analysis.domain.model.MomentumSnapshot(
+                            BigDecimal.valueOf(10), BigDecimal.valueOf(15), BigDecimal.valueOf(20), BigDecimal.valueOf(25), 65
+                    );
+            StrategyInput input = new StrategyInput("TEST", MarketType.KOR, snapshot, momentum, null, null);
+            StrategyScore score = calculator.calculate(input);
+            // 7 / 8 * 100 = 87.5 -> 반올림 88점
+            assertThat(score.score()).isEqualTo(88);
+        }
     }
 
     // ──────────────── 헬퍼 ────────────────

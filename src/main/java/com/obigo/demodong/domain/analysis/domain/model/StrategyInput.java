@@ -2,6 +2,7 @@ package com.obigo.demodong.domain.analysis.domain.model;
 
 import com.obigo.demodong.domain.stock.domain.enums.MarketType;
 import com.obigo.demodong.domain.technical.domain.model.TechnicalSnapshot;
+import com.obigo.demodong.domain.analysis.domain.enums.MarketRegime;
 
 /**
  * 전략 Calculator 공통 입력 데이터.
@@ -17,5 +18,14 @@ import com.obigo.demodong.domain.technical.domain.model.TechnicalSnapshot;
 public record StrategyInput(
         String ticker,
         MarketType market,
-        TechnicalSnapshot technical
-) {}
+        TechnicalSnapshot technical,
+        MomentumSnapshot momentum,      // Phase 3 추가
+        MarketRegime marketRegime,      // Phase 3 추가
+        String sector                   // Phase 3 추가 (Stock.sector)
+) {
+    // 하위 호환성을 위한 3인자 생성자 추가
+    public StrategyInput(String ticker, MarketType market, TechnicalSnapshot technical) {
+        this(ticker, market, technical, null, null, null);
+    }
+}
+

@@ -69,7 +69,7 @@ public class MinerviniCalculator implements StrategyCalculator {
         List<String> negatives = new ArrayList<>();
 
         int metCount = 0;
-        int totalConditions = 7;
+        int totalConditions = 8;
 
         // 조건 1: 현재가 > EMA150 > EMA200
         boolean c1 = ema150 != null && ema200 != null
@@ -148,6 +148,21 @@ public class MinerviniCalculator implements StrategyCalculator {
                 positives.add("52주 고점 25% 이내 근접 — 강한 추세");
             } else {
                 negatives.add("52주 고점 대비 25% 이상 하락");
+            }
+        }
+
+        // 조건 8: RS Rating ≥ 70
+        if (input.momentum() == null) {
+            totalConditions--;
+            detail.put("c8_rs_rating", -1);
+        } else {
+            boolean c8 = input.momentum().rsRating() >= 70;
+            detail.put("c8_rs_rating", c8 ? 1 : 0);
+            if (c8) {
+                metCount++;
+                positives.add("RS Rating 70 이상 — 시장 대비 강세");
+            } else {
+                negatives.add("RS Rating 70 미만 — 시장 대비 약세");
             }
         }
 
