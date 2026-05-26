@@ -1,0 +1,165 @@
+# Phase 5: KIS + DART 통합 — 전문 데이터 기반 AI 시그널 고도화
+# Status: DONE
+# Implemented: 2026-05-13
+# Branch: feature/phase5
+
+feature:
+  name: Phase 5 — KIS + DART 통합
+  domain: price
+  status: done
+  summary: >
+    Yahoo Finance RSS 기반 주가 조회를 KIS(한국투자증권) OpenAPI로 대체하고,
+    DART(전자공시시스템) 공시 데이터를 AI 프롬프트에 추가하여 시그널 품질을 고도화한다.
+
+# ──────────────────────────────────────────────
+# 1. 아키텍처 변경
+# ──────────────────────────────────────────────
+architecture:
+  ports:
+    - interface: StockPricePort
+      location: domain/price/domain/port/
+      implementations:
+        - KisStockPriceRouter   # @Primary — 라우터 (KOR/USA 분기)
+        - KisKorStockPriceProvider  # KOR 전용 (StockPricePort 미구현, 직접 호출됨)
+        - KisUsaStockPriceProvider  # USA 전용 (StockPricePort 미구현, 직접 호출됨)
+      note: >
+        Router 패턴 채택. KisKorStockPriceProvider / KisUsaStockPriceProvider는
+        Spring 빈 충돌 방지를 위해 StockPricePort를 직접 구현하지 않는다.
+
+    - interface: CorporateDisclosurePort
+      location: domain/price/domain/port/
+      implementations:
+        - DartDisclosureProvider   # DART 공시 목록 조회
+
+  models:
+    - DisclosureItem: record(title, date, type)  # domain/price/domain/model/
+
+  infra_new:
+    global_common:
+      - KisProperties: "@ConfigurationProperties(prefix=kis) record"
+      - KisConfig: "kisWebClient Bean (appkey/appsecret 기본 헤더)"
+      - DartProperties: "@ConfigurationProperties(prefix=dart) record"
+      - DartConfig: "dartWebClient Bean (maxInMemorySize 10MB — ZIP 처리)"
+    domain_price_kis:
+      - KisTokenManager: "OAuth2 토큰 발급·캐싱 (AtomicReference, @Scheduled 23h 갱신)"
+      - KisKorStockPriceProvider: "국내 주가 조회 (현재가 + 일별 시세, DB 캐싱)"
+      - KisUsaStockPriceProvider: "해외 주가 조회 (NAS→NYS→AMS 거래소 fallback)"
+      - KisStockPriceRouter: "@Primary StockPricePort, MarketType 기반 라우팅"
+    domain_price_dart:
+      - DartDisclosureProvider: "공시 목록 조회 (/list.json, pblntf_ty=A)"
+      - DartCorpCodeMapper: "corpCode.xml ZIP 파싱 → Stock.dartCorpCode 자동 매핑"
+
+# ──────────────────────────────────────────────
+# 2. KIS API 스펙
+# ──────────────────────────────────────────────
+kis_api:
+  auth:
+    endpoint: POST /oauth2/tokenP
+    body: '{"grant_type":"client_credentials","appkey":..,"appsecret":..}'
+    response_field: access_token
+    cache: AtomicReference<String> in KisTokenManager
+    refresh_schedule: "@Scheduled(fixedDelay = 23 * 60 * 60 * 1000)"
+
+  kor_current_price:
+    endpoint: GET /uapi/domestic-stock/v1/quotations/inquire-price
+    tr_id:
+      real: FHKST01010100
+      vts: VHKST01010100
+    key_params: FID_INPUT_ISCD (ticker)
+    response_field: output.stck_prpr (현재가)
+
+  kor_daily_price:
+    endpoint: GET /uapi/domestic-stock/v1/quotations/inquire-daily-price
+    tr_id:
+      real: FHKST01010400
+      vts: VHKST01010400
+    response_field: "output2[].stck_bsop_date, stck_clpr"
+
+  usa_current_price:
+    endpoint: GET /uapi/overseas-price/v1/quotations/price
+    tr_id: HHDFS00000300
+    exchange_fallback: NAS → NYS → AMS
+    response_field: output.last
+
+  usa_daily_price:
+    endpoint: GET /uapi/overseas-price/v1/quotations/dailyprice
+    tr_id: HHDFS76240000
+    response_field: "output2[].xymd, clos"
+
+  environment:
+    real: base-url은 openapi.koreainvestment.com 포함
+    vts: base-url은 openapivts.koreainvestment.com 포함 (vts 문자열로 판별)
+    note: KisTokenManager.trId(realTrId, vtsTrId)로 자동 분기
+
+# ──────────────────────────────────────────────
+# 3. DART API 스펙
+# ──────────────────────────────────────────────
+dart_api:
+  corp_code_sync:
+    endpoint: GET /corpCode.xml?crtfc_key={apiKey}
+    format: ZIP → XML 파싱
+    trigger: "@PostConstruct (앱 시작 시 1회)"
+    schedule: "(TODO) @Scheduled cron='0 30 8 * * MON' 매주 월요일 08:30"
+    xml_fields: corp_code, stock_code
+    target: "KOR 종목 중 dartCorpCode == null인 Stock에만 업데이트"
+
+  disclosure_list:
+    endpoint: GET /list.json?crtfc_key={apiKey}&corp_code={corpCode}&pblntf_ty=A&page_count=5
+    response_fields: corp_name, report_nm, rcept_dt, pblntf_ty
+    null_handling: >
+      dartCorpCode가 null이거나 API 실패 시 "공시 정보 없음" 반환.
+      USA 종목은 "해외 종목 — 공시 데이터 미지원" 반환.
+
+# ──────────────────────────────────────────────
+# 4. 엔티티 변경
+# ──────────────────────────────────────────────
+entity_changes:
+  Stock:
+    added_fields:
+      - sector: "VARCHAR(50), nullable — 섹터 (반도체, 소비재 등)"
+      - dartCorpCode: "VARCHAR(8), nullable — DART 법인코드 (KOR 전용)"
+    added_methods:
+      - "updateDartCorpCode(String dartCorpCode): DART 코드 매핑"
+
+  StockReader:
+    added_methods:
+      - "findAll(): List<Stock> — DartCorpCodeMapper에서 전체 조회용"
+
+# ──────────────────────────────────────────────
+# 5. AI 프롬프트 변경
+# ──────────────────────────────────────────────
+prompt_changes:
+  stock-analysis-system.st:
+    added: "[판단 기준] 섹션 — 뉴스, 주가 흐름, 기업 공시, 섹터 4항목"
+
+  stock-analysis-user.st:
+    added:
+      - "(섹터: {sector}) — 종목명 옆에 섹터 표기"
+      - "[최근 기업 공시] {disclosureData} — 섹션 신규 추가"
+
+  prompt_variables_added:
+    - sector: "Stock.sector 값 (null이면 빈 문자열)"
+    - disclosureData: "CorporateDisclosurePort.format(items) 결과"
+
+# ──────────────────────────────────────────────
+# 6. 설정 변경
+# ──────────────────────────────────────────────
+config_changes:
+  application.yaml:
+    added:
+      - "dart.api-key, dart.base-url"
+      - "kis.app-key, kis.app-secret, kis.base-url"
+
+  application-dev.yml:
+    note: >
+      로컬 개발용 — 모의투자(VTS) KIS 키 사용.
+      실전투자 키는 주석 처리.
+      Git 미추적 (.gitignore 권장).
+
+# ──────────────────────────────────────────────
+# 7. 알려진 한계 및 TODO
+# ──────────────────────────────────────────────
+known_limitations:
+  - DartCorpCodeMapper @Scheduled(매주 월요일 갱신) 미구현 — @PostConstruct만 동작 중
+  - USA 종목 DART 공시 미지원 (의도적 설계)
+  - KIS PriceSnapshot DB 캐싱: hasTodayData 조건부 API 호출 (당일 이미 저장된 경우 생략)

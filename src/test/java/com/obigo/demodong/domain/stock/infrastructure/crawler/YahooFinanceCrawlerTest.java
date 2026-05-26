@@ -1,5 +1,6 @@
 package com.obigo.demodong.domain.stock.infrastructure.crawler;
 
+import com.obigo.demodong.domain.signal.infrastructure.crawler.YahooFinanceCrawler;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;

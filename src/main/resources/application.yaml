@@ -4,13 +4,13 @@ spring:
 
   # Database Settings
   datasource:
-    url: jdbc:h2:mem:testdb
-    driver-class-name: org.h2.Driver
-    username: sa
-    password:
+    url: jdbc:postgresql://${DB_HOST}:${DB_PORT}/${DB_NAME}
+    driver-class-name: org.postgresql.Driver
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
 
   jpa:
-    database-platform: org.hibernate.dialect.H2Dialect
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
     hibernate:
       ddl-auto: update
     show-sql: true
@@ -18,14 +18,10 @@ spring:
       hibernate:
         format_sql: true
 
-  h2:
-    console:
-      enabled: true
-
-  # Spring AI Settings
+  # Spring AI Settings (Phase 8 — 선택적 AI 해석용, 기동 시 stub 허용)
   ai:
     openai:
-      api-key: ${GROQ_API_KEY}
+      api-key: ${GROQ_API_KEY:stub}
       base-url: https://api.groq.com/openai
       model: llama-3.1-8b-instant
       max-tokens: 2048
@@ -50,6 +46,13 @@ stock:
     rss-url: https://finance.yahoo.com/rss/headline?s=
 
 
-telegram:
-  bot_token : ${TELEGRAM_BOT_TOKEN}
-  chat-id : ${TELEGRAM_CHAT_ID}
+dart:
+  api-key: ${DART_API_KEY}
+  base-url: https://opendart.fss.or.kr/api
+
+kis:
+  app-key: ${KIS_APP_KEY}
+  app-secret: ${KIS_APP_SECRET}
+  base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
+
+# alpha-vantage: Phase 10 이후 미국 주식 재무 데이터 연동 시 추가

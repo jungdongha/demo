@@ -1,8 +1,11 @@
 # Stock Entity
-# Last Updated: 2026-05-11
+# Last Updated: 2026-05-13
+# 기획 변경 (Phase 5): Stock은 순수 종목 마스터 테이블로 역할을 축소.
+#   - is_watchlist 플래그 deprecated (UserWatchlist 엔티티로 이관)
+#   - dart_corp_code 컬럼 추가 (DART API 연동용)
 
 entity: STOCK
-description: 분석 대상 종목 정보 (보유/관심 종목 포함)
+description: 종목 마스터 정보. 시장에 상장된 개별 종목을 나타내며 사용자 관계와 무관하게 공유된다.
 table: stock
 domain: Stock
 
@@ -25,11 +28,26 @@ columns:
       type: ENUM('KOR', 'USA')
       nullable: false
       description: 시장 구분 (KOR=한국, USA=미국)
+  - sector:
+      type: VARCHAR(50)
+      nullable: true
+      description: 섹터/업종 (e.g., 반도체, 소비재, 금융, 바이오) — AI 프롬프트 섹터 특성 판단에 활용
+  - dart_corp_code:
+      type: VARCHAR(8)
+      nullable: true
+      description: >
+        DART 고유 기업코드 (8자리). KOR 종목만 해당.
+        최초 종목 등록 시 DART /corpCode.xml 파싱하여 자동 매핑.
+        USA 종목은 null.
   - is_watchlist:
       type: BOOLEAN
       nullable: false
       default: false
-      description: 관심 종목 여부 (true=관심, false=보유)
+      deprecated: true
+      description: >
+        [DEPRECATED — Phase 5에서 UserWatchlist 엔티티로 대체]
+        기존 단일 사용자 가정의 관심 종목 플래그. Phase 6에서 컬럼 삭제 예정.
+        신규 코드에서는 절대 사용하지 말 것.
   - created_at:
       type: TIMESTAMP
       nullable: false
@@ -49,14 +67,18 @@ columns:
       description: 소프트 삭제 일시 — BaseEntity 상속
 
 relationships:
+  - UserWatchlist: OneToMany (stock_id FK) — 이 종목을 관심 등록한 사용자 목록
+  - PortfolioDetail: OneToMany (stock_id FK) — 이 종목을 보유한 사용자 목록
   - SignalReport: OneToMany (stock_id FK)
-  - PortfolioDetail: OneToOne (stock_id FK, 보유 종목인 경우)
   - PriceSnapshot: OneToMany (stock_id FK)
 
 business_logic:
-  - "create(ticker, name, marketType, isWatchlist): 종목 등록 (정적 팩토리 메서드)"
+  - "Stock.builder()...build(): 종목 등록 (@SuperBuilder 사용)"
+  - "updateDartCorpCode(dartCorpCode): DART 기업코드 매핑 (DartCorpCodeMapper가 호출)"
+  - "updateWatchlist(isWatchlist): 관심 종목 플래그 변경"
   - "isKorean(): market_type == KOR"
   - "isAmerican(): market_type == USA"
+  - "hasDartCode(): dart_corp_code != null — 공시 조회 가능 여부"
 
 enums:
   MarketType: KOR | USA

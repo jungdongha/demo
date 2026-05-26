@@ -1,0 +1,90 @@
+name: demo-dong CI/CD
+
+on:
+  push:
+    branches: [ "dev", "feat" ]
+  pull_request:
+    branches: [ "dev" ]
+
+jobs:
+  ci-cd:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+
+      - name: Cache Gradle packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Build with Gradle
+        run: |
+          chmod +x ./gradlew
+          ./gradlew clean build -x test
+
+      - name: Set up QEMU
+        if: github.event_name == 'push'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        if: github.event_name == 'push'
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Docker Hub
+        if: github.event_name == 'push'
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build and push Docker image
+        if: github.event_name == 'push'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          platforms: linux/amd64
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/demo-dong:latest
+
+      - name: Deploy to AWS
+        if: github.event_name == 'push'
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          ENV_PROPERTIES: ${{ secrets.ENV_PROPERTIES }}
+        with:
+          host: ${{ secrets.AWS_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.AWS_PRIVATE_KEY }}
+          envs: ENV_PROPERTIES
+          script: |
+            echo "$ENV_PROPERTIES" > ~/demo-dong.env
+
+            docker stop demo-dong || true
+            docker rm demo-dong || true
+
+            docker pull ${{ secrets.DOCKERHUB_USERNAME }}/demo-dong:latest
+
+            docker run -d \
+              --name demo-dong \
+              -p 8090:8090 \
+              --env-file ~/demo-dong.env \
+              --restart unless-stopped \
+              --entrypoint java \
+              ${{ secrets.DOCKERHUB_USERNAME }}/demo-dong:latest \
+              -Dhttps.protocols=TLSv1.2 \
+              -Djdk.tls.client.protocols=TLSv1.2 \
+              -Xmx512m \
+              -jar /app.jar

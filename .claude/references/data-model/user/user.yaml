@@ -1,0 +1,65 @@
+# User Entity
+# Last Updated: 2026-05-12
+# ⚠️ NOT IMPLEMENTING: 개인 프로젝트 — 다중 사용자/개인화 기능 불필요. 단일 사용자 구조 유지.
+# 설계 참고용으로만 보존. 실제 구현 대상 아님.
+
+entity: USER
+description: 서비스 사용자. 텔레그램 Chat ID 기반 식별. 관심 종목·보유 종목의 소유자.
+table: users
+domain: User
+
+columns:
+  - user_id:
+      type: BIGINT
+      nullable: false
+      pk: true
+      description: PK (Auto-Increment)
+  - telegram_chat_id:
+      type: VARCHAR(50)
+      nullable: false
+      unique: true
+      description: 텔레그램 Chat ID — 사용자 식별 키 (봇 메시지 발송 대상)
+  - nickname:
+      type: VARCHAR(50)
+      nullable: true
+      description: 사용자 별명 (텔레그램 username 또는 직접 설정)
+  - briefing_time:
+      type: VARCHAR(5)
+      nullable: false
+      default: "'08:50'"
+      description: "모닝 브리핑 발송 시각 (HH:mm 형식, 기본값 08:50)"
+  - is_active:
+      type: BOOLEAN
+      nullable: false
+      default: true
+      description: 알림 수신 활성 여부 (false 시 브리핑 발송 제외)
+  - created_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 가입 일시 — BaseEntity 상속
+  - updated_at:
+      type: TIMESTAMP
+      nullable: false
+      description: 최종 수정 일시 — BaseEntity 상속
+  - deleted:
+      type: BOOLEAN
+      nullable: false
+      default: false
+      description: 소프트 삭제 여부 — BaseEntity 상속
+  - deleted_at:
+      type: TIMESTAMP
+      nullable: true
+      description: 소프트 삭제 일시 — BaseEntity 상속
+
+relationships:
+  - UserWatchlist: OneToMany (user_id FK) — 관심 종목 목록
+  - PortfolioDetail: OneToMany (user_id FK) — 보유 종목 목록
+
+business_logic:
+  - "create(telegramChatId, nickname): 사용자 등록 (정적 팩토리 메서드)"
+  - "updateBriefingTime(time): 브리핑 시각 변경"
+  - "deactivate(): is_active = false (알림 수신 중단)"
+
+notes:
+  - 현재 단계(Phase 5)에서는 인증(JWT 등) 없이 telegram_chat_id를 식별자로 사용
+  - 향후 Phase 6 웹 대시보드 도입 시 이메일/OAuth 로그인 추가 고려

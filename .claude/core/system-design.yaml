@@ -1,83 +1,396 @@
 architecture:
-  intent: "Prioritize Maintainability & Testability. Clear separation of concerns."
+  intent: "Maintainability & Testability. Clear separation of concerns."
   pattern: Layered DDD
   flow: Controller -> UseCase(Tx) -> Domain(Entity/Service) -> Repository
-  flow(external/infra): Controller -> UseCase -> Domain(Interface) <- [Implements] - Infrastructure/External
-  patterns:
-    - Factory Method: Use static `create()` method in Entity.
-    - Rich Model: Encapsulate business logic in Entity methods.
-    - Strategy: NewsCrawlerStrategy interface for OCP (KOR/USA crawlers)
+  flow_external: Controller -> UseCase -> Domain(Port interface) <- [Implements] - External
+
   layers:
     presentation:
       role: [ HTTP handling, @Valid, UseCase 1:1 mapping ]
       forbidden: [ Business logic, Direct Repo access ]
     usecase:
-      role: [ Transaction boundary, DTO conversion, Orchestration, SSE streaming ]
-      pattern: Single Facade per domain
-      naming: "{Domain}UseCase (e.g., StockAnalysisUseCase) — ONE class per domain, all operations inside"
+      role: [ Transaction boundary, DTO conversion, Orchestration ]
+      naming: "{Domain}UseCase — ONE class per domain"
     domain:
-      role: [ Pure business logic, State changes, Define Interfaces (Port) ]
-      rule:
-        - Entity holds logic (Rich Model, Tell Don't Ask)
-        - Service only for complex orchestration
-        - Interfaces defined here, implemented in Infra/External (DIP)
+      role: [ Pure business logic, Port Interfaces (DIP) ]
+      rules:
+        - Entity holds logic (Rich Model)
+        - Service for complex orchestration only
+        - Port interfaces defined here, implemented in external
     external:
-      role: [ External APIs (Groq AI, Naver News API, Yahoo Finance RSS), Implement Domain Interfaces ]
+      role: KIS API, DART API, Groq AI, Naver News, Yahoo Finance RSS
     infrastructure:
-      role: [ Systems we control (Telegram Bot, Schedulers), Implement Domain Interfaces ]
-  rules:
-    - UseCase: Single Facade per domain, DTO conversion here
-    - Entity: Contains business logic (Tell Don't Ask)
-    - DTO Conversion: MUST use Static Factory Method (static from())
-                        - Bad: return new ResponseDto(entity.getId(), entity.getName(), ...)
-                        - Good: return ResponseDto.from(entity)
-    - Signature: Pass WHOLE OBJECTS (Entity/DTO), not loose fields.
+      role: Schedulers, Telegram Bot
+
   constraint:
-    - NO Layer Skipping: UseCase MUST NOT depend on Repository or Infrastructure directly.
-    - NO Horizontal Dependency: UseCase MUST NOT depend on other UseCases.
-    - NO Horizontal Dependency: Domain Service MUST NOT depend on other Domain Services.
+    - "NO Layer Skipping: UseCase → Repository 직접 의존 금지"
+    - "NO Horizontal Dependency: UseCase 간, Domain Service 간 직접 의존 금지"
 
+# ─────────────────────────────────────────────────────────────────
+# 도메인 구조
+# ─────────────────────────────────────────────────────────────────
+domains:
+
+  stock:
+    package: domain.stock
+    description: "종목 기본정보 (ticker, name, market, sector, dart_corp_code)"
+    status: 재사용 (기존 코드 유지)
+
+  price:
+    package: domain.price
+    description: "주가 시계열 수집 (KIS API)"
+    ports:
+      StockPricePort:
+        kor: KisKorStockPriceProvider
+        usa: KisUsaStockPriceProvider
+      CorporateDisclosurePort:
+        kor: DartDisclosureProvider
+    status: 재사용 (기존 코드 유지)
+
+  technical:
+    package: domain.technical
+    description: "기술적 지표 계산 엔진 (Phase 2)"
+    output_model: TechnicalSnapshot
+    calculators:
+      RsiCalculator:
+        formula: "RS = 평균상승/평균하락, RSI = 100 - 100/(1+RS)"
+        period: 14
+      MacdCalculator:
+        formula: "EMA12 - EMA26, Signal = MACD의 EMA9"
+        output: [ macd, signal, histogram ]
+      BollingerBandCalculator:
+        formula: "SMA20 ± 2σ"
+        output: [ upper, mid, lower ]
+      EmaCalculator:
+        periods: [ 20, 50, 150, 200 ]
+        formula: "EMA = 전일EMA × (1-k) + 현재가 × k, k=2/(n+1)"
+      SmaCalculator:
+        periods: [ 20, 60 ]
+      AtrCalculator:
+        formula: "max(H-L, |H-PC|, |L-PC|)의 14일 평균"
+        period: 14
+      AdxCalculator:
+        formula: "+DI, -DI 기반 DX의 14일 EMA"
+        period: 14
+    input: "List<PriceSnapshot> (최소 200일치)"
+    output: |
+      record TechnicalSnapshot(
+          BigDecimal rsi14,
+          BigDecimal macd, macdSignal, macdHistogram,
+          BigDecimal bollingerUpper, bollingerMid, bollingerLower,
+          Map<Integer,BigDecimal> emaMap,   // 20/50/150/200
+          BigDecimal atr14, adx14,
+          BigDecimal sma20, sma60,
+          BigDecimal currentPrice, high52w, low52w,
+          BigDecimal deviationFromSma20     // 이격률 = (현재가-SMA20)/SMA20
+      )
+    testing: "Calculator별 최소 5개 단위 테스트 (정상값 3 + 경계값 2)"
+
+  fundamental:
+    package: domain.fundamental
+    description: "재무 지표 파싱 및 계산 (Phase 4) — 한국 완전지원, 미국 Stub"
+    output_model: FundamentalSnapshot
+    port:
+      FundamentalDataPort:
+        kor: DartFundamentalAdapter + KisFundamentalAdapter
+        usa: FundamentalSnapshot.stub()  # Alpha Vantage 무료 한계로 미지원
+    dart_parsing_strategy:
+      problem: "XBRL 계정과목 코드가 회사마다 다를 수 있음"
+      solution: |
+        계정과목 매핑 테이블 (AccountCodeMapper) 별도 관리
+        - 우선순위: ifrs-full → dart 자체 코드 순으로 fallback
+        - 연결/별도 재무제표: 연결(CFS) 우선, 없으면 별도(OFS)
+        - null 수신 시 → FundamentalSnapshot 해당 필드 null 처리
+    output: |
+      record FundamentalSnapshot(
+          BigDecimal per, pbr, peg,
+          BigDecimal roe, roa, roic,
+          BigDecimal debtRatio, currentRatio,
+          BigDecimal operatingMargin, netMargin,
+          BigDecimal epsGrowthYoy, epsGrowthQoq,
+          BigDecimal revenueGrowthYoy,
+          BigDecimal earningsYield,   // EBIT/EV (Magic Formula용)
+          BigDecimal marketCap, eps
+      )
+    stub_factory: "FundamentalSnapshot.stub() — 미국 주식용, 모든 필드 null"
+
+  flow:
+    package: domain.flow
+    description: "수급 분석 — 기관/외국인 매매동향 (Phase 5) — 한국만"
+    output_model: FlowSnapshot
+    port:
+      InvestorFlowPort:
+        kor: KisInvestorFlowAdapter  # /uapi/domestic-stock/v1/quotations/inquire-investor
+        usa: FlowSnapshot.stub()     # KIS 해외 수급 API 미지원
+    output: |
+      record FlowSnapshot(
+          long institutionalNetBuy5d,
+          long institutionalNetBuy20d,
+          long foreignNetBuy5d,
+          long foreignNetBuy20d,
+          double volumeChangeRate,   // 5일 평균 대비 거래량 변화율
+          long tradingValue,
+          double relativeStrength    // RS Rating (섹터 대비)
+      )
+
+  analysis:
+    package: domain.analysis
+    description: "7개 전략 Score 계산기 — 핵심 도메인"
+
+    strategy_input: |
+      record StrategyInput(
+          String ticker,
+          MarketType market,
+          TechnicalSnapshot technical,
+          FundamentalSnapshot fundamental,   // 한국만 실값, 미국은 stub
+          FlowSnapshot flow,                 // 한국만 실값, 미국은 stub
+          MarketRegime marketRegime,
+          List<BigDecimal> monthlyReturns,   // Dual Momentum, Seasonality용
+          String sector                      // Seasonality용
+      )
+
+    strategy_score: |
+      record StrategyScore(
+          StrategyType type,
+          int score,                        // 0~100
+          String grade,                     // S/A/B/C/D
+          Map<String,Integer> detail,       // 항목별 세부 점수
+          List<String> positives,
+          List<String> negatives
+      )
+
+    grade_table:
+      S: "80~100 (매우 강함)"
+      A: "60~79  (강함)"
+      B: "40~59  (보통)"
+      C: "20~39  (약함)"
+      D: "0~19   (매우 약함)"
+
+    null_rule: "데이터 부재 시 → 50점 중립. 0점 패널티 없음."
+
+    calculators:
+
+      MeanReversionCalculator:
+        phase: 2
+        market_support: [ KOR, USA ]
+        required_data: [ technical.rsi14, technical.bollingerUpper/Lower, technical.deviationFromSma20 ]
+        scoring:
+          rsi_score:
+            "< 30":  100
+            "30~40": 75
+            "40~60": 50
+            "60~70": 25
+            "> 70":  0
+          bollinger_score: "현재가 위치를 밴드 내 0~100 선형 역변환"
+          deviation_score: "이격률 정규화 (±10%p = 0~100, 음수일수록 높은 점수)"
+        weights: "RSI 40% + Bollinger 40% + 이격률 20%"
+
+      MinerviniCalculator:
+        phase: 2
+        market_support: [ KOR, USA ]
+        required_data: [ technical.emaMap, technical.currentPrice, technical.high52w, technical.low52w, flow.relativeStrength ]
+        conditions:
+          - "현재가 > EMA150 > EMA200"
+          - "EMA200 최근 1개월 상승 추세"
+          - "EMA50 > EMA150 > EMA200"
+          - "현재가 > EMA50"
+          - "현재가 > EMA20"
+          - "현재가 ≥ 52주 저점 × 1.30"
+          - "현재가 ≥ 52주 고점 × 0.75"
+          - "RS Rating ≥ 70"
+        scoring_rule: "조건 충족 수 × 12.5 = 0~100"
+        note: "RS Rating 데이터 없으면 해당 조건 제외하고 나머지 7개로 비례 계산"
+
+      DualMomentumCalculator:
+        phase: 3
+        market_support: [ KOR, USA ]
+        required_data: [ monthlyReturns (1/3/6/12개월), marketRegime ]
+        scoring:
+          absolute_momentum: "해당 기간 수익률 > 0 → 100점, ≤ 0 → 0점"
+          relative_momentum: "시장(KOSPI/S&P500) 대비 초과수익률 정규화"
+        weights: "절대모멘텀 50% + 상대모멘텀 50%"
+
+      SeasonalityCalculator:
+        phase: 3
+        market_support: [ KOR, USA ]
+        required_data: [ 현재월, sector ]
+        approach: "업종별 월별 계절성 점수 하드코딩 테이블"
+        note: |
+          실데이터(과거 5년 월별 수익률)가 없으므로 초기엔 사전 정의 테이블 사용.
+          테이블은 SeasonalityTable.java에 Map<String, Map<Month, Integer>> 형태로 관리.
+          실데이터 누적 후 교체 가능한 구조로 설계.
+        scoring:
+          month_score: "현재 월의 해당 업종 계절성 점수 (테이블 조회)"
+          regime_bonus: "BULL 시장이면 +10점 보정"
+
+      PiotroskiCalculator:
+        phase: 4
+        market_support: [ KOR ]  # DART 의존
+        required_data: [ fundamental.roa, fundamental.operatingMargin, fundamental.debtRatio, fundamental.currentRatio, fundamental.epsGrowthYoy, fundamental.revenueGrowthYoy ]
+        scoring:
+          f1_roa:            "ROA > 0 → 1점"
+          f2_cfo:            "영업현금흐름 > 0 → 1점"
+          f3_roa_change:     "전년 대비 ROA 개선 → 1점"
+          f4_accruals:       "CFO/자산 > ROA → 1점"
+          f5_leverage:       "부채비율 감소 → 1점"
+          f6_liquidity:      "유동비율 개선 → 1점"
+          f7_dilution:       "신주 미발행 → 1점"
+          f8_gross_margin:   "매출총이익률 개선 → 1점"
+          f9_asset_turnover: "자산회전율 개선 → 1점"
+        output: "F-Score (0~9) × 11.1 → 0~100"
+
+      CanSlimCalculator:
+        phase: 5
+        market_support: [ KOR ]  # 수급 + 재무 의존
+        required_data: [ fundamental.epsGrowthYoy/Qoq, fundamental.revenueGrowthYoy, technical(거래량), flow.institutionalNetBuy, flow.foreignNetBuy, marketRegime ]
+        scoring:
+          C_current_earnings:  "전분기 EPS 성장률: ≥25% = 100, 선형"
+          A_annual_earnings:   "연간 EPS 성장률: ≥25% = 100, 선형"
+          N_new_high:          "52주 신고가 여부: boolean → 0/100"
+          S_supply_demand:     "거래량 증가율 + 기관/외국인 순매수 합산"
+          L_leader:            "RS Rating 기반 업종 내 상위 여부"
+          I_institutional:     "기관 5일 연속 순매수 여부"
+          M_market_direction:  "BULL=100 / SIDEWAYS=50 / BEAR=0"
+        output: "7개 항목 평균 → 0~100"
+
+      MagicFormulaCalculator:
+        phase: 6
+        market_support: [ KOR ]  # 유니버스 배치 필요
+        required_data: [ fundamental.roic, fundamental.earningsYield ]
+        architecture: |
+          단일 종목 실시간 계산 불가 → 유니버스 배치 구조
+          1. MagicFormulaUniverse 테이블 — 분석 대상 종목 관리
+          2. MagicFormulaBatchService — 매일 장 종료 후 전체 순위 계산
+          3. MagicFormulaRankRepository — 계산된 순위 저장
+          4. MagicFormulaCalculator — DB에서 순위 조회 → 점수 반환
+        scoring:
+          roic_rank:    "유니버스 내 ROIC 내림차순 순위 → 0~100 정규화"
+          ey_rank:      "유니버스 내 Earnings Yield 내림차순 순위 → 0~100 정규화"
+        output: "(roic_rank + ey_rank) / 2"
+
+  market_regime:
+    package: domain.analysis.domain.service
+    description: "시장 국면 판단 (Phase 3)"
+    enum: [ STRONG_BULL, BULL, SIDEWAYS, BEAR, CRISIS ]
+    logic: |
+      KOSPI/S&P500 지수 5일·20일 변동률 기반 판단
+      - STRONG_BULL: 5d > +3%
+      - BULL:        5d > 0%, 20d > 0%
+      - SIDEWAYS:    -1% < 5d < +1%
+      - BEAR:        5d < -1% or 20d < -2%
+      - CRISIS:      5d < -5%
+
+  report:
+    package: domain.report
+    description: "AI 선택적 해석 + 캐싱 (Phase 8)"
+    entities: [ AiReport ]
+    caching: "ticker + date 기준 (unique key), TTL 24h"
+    ai_provider: "Groq (llama-3.1-8b-instant)"
+    call_condition: "POST /api/analysis/{ticker}/ai-report 명시적 요청 시만"
+    prompt_strategy: |
+      입력: 7개 전략 점수 + 세부 항목 + 핵심 재무/기술 지표 (JSON)
+      출력:
+        - 강점 2~3가지 (점수 높은 전략 근거)
+        - 약점 2~3가지 (점수 낮은 전략 근거)
+        - 종합 판단 1~2문장
+        - 면책 문구 (필수)
+      최대 응답 토큰: 500
+
+# ─────────────────────────────────────────────────────────────────
+# API 설계
+# ─────────────────────────────────────────────────────────────────
 api:
-  intent: "Consistency & Predictability for clients. Standardized error handling."
   base_url: /api
-  response_wrapper: CommonResponse<T> { code, message, data }
-  error_response: { code: Int, message: String }
-  methods: { GET: 200, POST: 201, PUT/PATCH: 200, DELETE: 204 }
-  naming:
-    url: kebab-case (e.g., /api/stock/analyze/{ticker})
-    dto: { Action }{ Resource }Request, {Resource}Response
-  endpoints:
-    signal:
-      - "GET /api/stock/analyze/{ticker}  # SSE 스트리밍 온디맨드 분석"
-      - "GET /api/reports/today           # 오늘 배치 시그널 목록"
-      - "GET /api/reports/{stockId}/history # 종목별 시그널 히스토리"
-    portfolio:
-      - "POST   /api/portfolio             # 보유 종목 등록"
-      - "GET    /api/portfolio             # 보유 종목 목록 + 수익률"
-      - "DELETE /api/portfolio/{id}        # 보유 종목 삭제"
-      - "POST   /api/watchlist             # 관심 종목 등록"
-      - "DELETE /api/watchlist/{id}        # 관심 종목 삭제"
-  error_codes:
-    global: 30001~30999 (Server), 40001~40099 (Client)
-    domains:
-      signal: 401xx
-      portfolio: 402xx
-      stock: 403xx
+  response_wrapper: "CommonResponse<T> { code, message, data }"
 
+  endpoints:
+    analysis:
+      - "GET  /api/analysis/{ticker}               # 종목 전체 분석 (7전략 + 기술 + 재무 + 수급)"
+      - "GET  /api/analysis/{ticker}/strategies     # 7개 전략 점수 목록"
+      - "GET  /api/analysis/{ticker}/technical      # 기술적 지표"
+      - "GET  /api/analysis/{ticker}/fundamental    # 재무 지표 (한국만 실값)"
+      - "GET  /api/analysis/{ticker}/flow           # 수급 분석 (한국만)"
+      - "POST /api/analysis/{ticker}/ai-report      # AI 해석 (선택적)"
+    stocks:
+      - "GET /api/stocks/search?q={keyword}"
+      - "GET /api/stocks/compare?tickers=A,B,C"
+    market:
+      - "GET /api/market/regime"
+
+  error_codes:
+    stock:       401xx
+    technical:   402xx
+    fundamental: 403xx
+    flow:        404xx
+    analysis:    405xx
+    report:      406xx
+
+# ─────────────────────────────────────────────────────────────────
+# 프론트엔드 (Phase 7)
+# ─────────────────────────────────────────────────────────────────
+frontend:
+  framework: "React 18 + Vite + TypeScript + Tailwind CSS + Recharts + Axios"
+  location: ./frontend
+  dev_port: 5173
+  api_proxy: "Vite proxy → localhost:8090"
+
+  pages:
+    AnalysisPage:
+      route: "/analysis/:ticker"
+      sections:
+        - 종목 헤더 (이름 / 현재가 / 등락률 / 시장)
+        - 주가 차트 (EMA 오버레이, 6개월)
+        - 7개 전략 점수 카드 그리드 (2열)
+        - 기술적 지표 섹션 (RSI / MACD / Bollinger)
+        - 재무 지표 섹션 (한국만 실값, 미국은 미지원 안내)
+        - 수급 분석 섹션 (한국만)
+        - AI 해석 버튼 → 결과 패널
+        - 공시·뉴스 섹션
+    ComparePage:
+      route: "/compare"
+    HomePage:
+      route: "/"
+      features: [ 종목 검색, 전략 필터링 ]
+
+  components:
+    StrategyScoreCard:
+      props: "{ strategy, score, grade, detail }"
+      display: "전략명 + 점수 숫자 + 게이지 바 + 등급 칩 + 세부 항목 툴팁"
+    ScoreGauge: "0~100 프로그레스 바, 색상: S=초록/D=빨강 그라데이션"
+    GradeChip: "S/A/B/C/D 등급 색상 칩"
+
+  market_support_ui:
+    kor: "모든 섹션 실값 표시"
+    usa: "재무/수급 섹션에 '한국 상장 종목만 지원' 배지 표시"
+
+# ─────────────────────────────────────────────────────────────────
+# 재사용 인프라 (변경 없음)
+# ─────────────────────────────────────────────────────────────────
+reused_infra:
+  kis:
+    token_manager: KisTokenManager
+    kor_endpoints:
+      current_price:   /uapi/domestic-stock/v1/quotations/inquire-price
+      daily_price:     /uapi/domestic-stock/v1/quotations/inquire-daily-price
+      investor_flow:   /uapi/domestic-stock/v1/quotations/inquire-investor
+      market_index:    /uapi/domestic-stock/v1/quotations/inquire-index-price
+    usa_endpoints:
+      current_price:   /uapi/overseas-price/v1/quotations/price
+      daily_price:     /uapi/overseas-price/v1/quotations/dailyprice
+
+  dart:
+    disclosure_list:     /list.json
+    financial_statement: /fnlttSinglAcnt.json
+    corp_code_update:    "@Scheduled(cron='0 30 8 * * MON') 주 1회 갱신"
+
+# ─────────────────────────────────────────────────────────────────
+# 엔티티 공통 규칙
+# ─────────────────────────────────────────────────────────────────
 entity:
-  intent: "Data Integrity & Encapsulation. Protect invariants within the Entity."
-  base:
-    BaseEntity (id: Auto-Increment Long, createdAt, updatedAt, deleted: Boolean=false, deletedAt: LocalDateTime)
-    softDelete(): "deleted=true, deletedAt=now() — 모든 삭제는 이 메서드 호출"
-  mapping:
-    - ManyToOne(Lazy)
-    - Use JPA relationships with FK constraints
-  column_rules:
-    - Enum: @Enumerated(EnumType.STRING) (ORDINAL Forbidden)
-    - Text: @Lob or columnDefinition="TEXT"
-    - String: Must specify length
-    - Boolean: default value required (e.g., deleted=false)
+  base: "BaseEntity (id, createdAt, updatedAt, deleted, deletedAt)"
+  soft_delete: "entity.softDelete() — 모든 삭제에서 반드시 사용"
   rules:
-    - Soft Delete required -> NEVER use deleteById(). Call entity.softDelete() then save()
-    - No equals/hashCode override
-    - No toDto() inside Entity
+    - "Enum: @Enumerated(EnumType.STRING)"
+    - "Text: @Lob or columnDefinition=TEXT"
+    - "NEVER deleteById() → softDelete() + save()"
+    - "DTO: static from(entity) factory method"
