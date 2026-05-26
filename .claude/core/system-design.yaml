@@ -394,3 +394,144 @@ entity:
     - "Text: @Lob or columnDefinition=TEXT"
     - "NEVER deleteById() → softDelete() + save()"
     - "DTO: static from(entity) factory method"
+
+# ─────────────────────────────────────────────────────────────────
+# Strategy Explanation — StrategyAnalysisResult (Phase 2부터 적용)
+# ─────────────────────────────────────────────────────────────────
+strategy_explanation:
+  description: >
+    모든 StrategyCalculator는 점수(int)가 아닌 StrategyAnalysisResult를 반환한다.
+    이 설계는 Phase 2부터 내재화 — 나중에 추가하면 전체 Calculator 재설계 필요.
+
+  model: |
+    record StrategyAnalysisResult(
+        StrategyType type,
+        int score,                       // 0~100
+        String grade,                    // S/A/B/C/D
+        Map<String, Integer> detail,     // 항목명 → 세부 점수
+        List<String> positives,          // ✔ 충족 조건 설명
+        List<String> negatives,          // ✘ 미충족 조건 설명
+        List<String> neutralFactors      // → 판단 보류 (데이터 없음 등)
+    )
+
+  interface: |
+    public interface StrategyCalculator {
+        StrategyAnalysisResult calculate(StrategyInput input);
+        StrategyType getSupportedStrategy();
+    }
+
+  example:
+    minervini: |
+      score: 88, grade: "S"
+      positives:  ["EMA 정배열 완성 (50>150>200)", "52주 고점 근접 (-8%)"]
+      negatives:  ["거래량 증가 부족 (5일 평균 대비 -12%)"]
+      neutralFactors: []
+    mean_reversion: |
+      score: 72, grade: "A"
+      positives:  ["RSI 28 (과매도 구간)", "볼린저 하단밴드 근접"]
+      negatives:  ["하락 추세 지속 (SMA20 대비 -8%)"]
+      neutralFactors: []
+
+# ─────────────────────────────────────────────────────────────────
+# Backtest Engine (Phase 3.5)
+# ─────────────────────────────────────────────────────────────────
+backtest:
+  package: domain.backtest
+  description: "전략 점수 기반 과거 성과 시뮬레이션 — 검증 가능한 퀀트 플랫폼"
+
+  flow: |
+    BacktestRequest (기간/전략/리밸런싱/TopN)
+      → BacktestEngine.run()
+        → 날짜 순회 (startDate ~ endDate)
+          → 리밸런싱 시점마다:
+            1. 유니버스 종목 전략 점수 계산 (과거 데이터 기준)
+            2. minScore 이상 종목 중 TopN 선택
+            3. 동일 비중 매수 (cashRatio 제외)
+          → 다음 리밸런싱까지 수익률 적용
+          → PortfolioSnapshot 저장
+      → PerformanceMetricService로 CAGR/MDD/Sharpe/WinRate 계산
+      → BacktestResult 반환
+
+  models:
+    BacktestConfig: |
+      record BacktestConfig(
+          LocalDate startDate, endDate,
+          StrategyType strategy,      // 또는 META
+          int minScore,               // 최소 진입 점수
+          int topN,                   // 상위 N종목
+          RebalancePeriod period,     // DAILY/WEEKLY/MONTHLY
+          BigDecimal cashRatio        // 현금 비중 0.0~1.0
+      )
+    BacktestResult: |
+      record BacktestResult(
+          BigDecimal totalReturn,
+          BigDecimal cagr,
+          BigDecimal maxDrawdown,
+          BigDecimal sharpeRatio,
+          double winRate,
+          int totalTrades,
+          List<PortfolioSnapshot> history,
+          List<TradeHistory> trades
+      )
+
+  calculators:
+    CagrCalculator:    "(최종자산/초기자산)^(1/연수) - 1"
+    MddCalculator:     "고점 대비 최대 낙폭: (저점-고점)/고점"
+    SharpeRatioCalculator: "(전략수익률-무위험이자율) / 수익률표준편차, 무위험이자율=2%"
+    WinRateCalculator: "수익 구간 / 전체 리밸런싱 구간"
+
+  constraints:
+    - "기술적 전략만 우선 지원 (재무 의존 전략은 DART 과거 데이터 없음)"
+    - "PriceSnapshot 200일치 이상 있는 종목만 대상"
+    - "백테스트 실행은 비동기 (@Async) — 결과 DB 저장 후 polling 조회"
+
+  api:
+    - "POST /api/backtest/run         → BacktestJob ID 반환 (비동기)"
+    - "GET  /api/backtest/{id}         → 결과 조회 (status: RUNNING/DONE/FAILED)"
+    - "GET  /api/backtest/{id}/trades  → 상세 매매 기록"
+
+# ─────────────────────────────────────────────────────────────────
+# Meta Score (Phase 7.5)
+# ─────────────────────────────────────────────────────────────────
+meta_score:
+  package: domain.meta
+  description: "7개 전략 → 1개 종합 점수 + 투자 스타일 분류 + 동적 가중치"
+
+  components:
+    MetaScoreCalculator:       "7개 StrategyAnalysisResult → MetaAnalysisResult"
+    StrategyWeightPolicy:      "고정 가중치 인터페이스"
+    MarketAdaptiveWeightPolicy: "시장 국면별 동적 가중치 구현체"
+
+  category_weights_default:
+    Technical:   "Mean Reversion + Minervini 평균 → 25%"
+    Momentum:    "Dual Momentum → 20%"
+    Fundamental: "Piotroski + Magic Formula 평균 → 35%"
+    Growth:      "CAN SLIM → 15%"
+    Seasonal:    "Seasonality → 5%"
+
+  dynamic_weights:
+    BULL:      "Momentum +5%, Growth +5%, Fundamental -10%"
+    BEAR:      "Fundamental +10%, Mean Reversion +5%, Momentum -15%"
+    SIDEWAYS:  "기본 가중치 유지"
+    CRISIS:    "Fundamental +15%, Mean Reversion +10%, 나머지 -25% 분배"
+
+  investment_style_rules:
+    성장_모멘텀_우위형: "Momentum > 70 AND Growth > 70"
+    가치_중심형:       "Fundamental > 75"
+    반등_기대형:       "Mean Reversion > 75 AND Momentum < 40"
+    균형형:           "모든 카테고리 50~75"
+    관망:             "metaScore < 40"
+
+  model: |
+    record MetaAnalysisResult(
+        int metaScore,
+        String grade,
+        String investmentStyle,
+        MarketRegime currentRegime,
+        List<String> strongestStrategies,
+        List<String> weakestStrategies,
+        Map<String, Integer> categoryScores
+    )
+
+  api:
+    - "GET /api/analysis/{ticker}/meta"
