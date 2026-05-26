@@ -9,6 +9,60 @@
 
 ---
 
+## 프로젝트 수준 목표
+
+현재 프로젝트를:
+
+```text
+"전략 점수 계산 서비스"
+```
+
+수준에서,
+
+```text
+"검증 가능한 설명형 퀀트 플랫폼"
+```
+
+수준으로 확장하기 위한 핵심 기능 3개를 추가한다.
+
+### 추가 핵심 기능
+
+| 기능                   | 목적           | 구현 Phase     |
+| -------------------- | ------------ | ------------ |
+| Strategy Explanation | 점수 계산 근거 설명  | Phase 2부터 내재화 |
+| Backtest Engine      | 전략의 실제 성과 검증 | Phase 3.5    |
+| Meta Score           | 전략 종합 평가     | Phase 7.5    |
+
+### 전체 구조 변경
+
+**기존 흐름:**
+```text
+주가 데이터 → 전략 계산 → 점수 출력
+```
+
+**변경 후:**
+```text
+주가 데이터 → 전략 계산 → 설명 생성 → 전략 통합 → Meta Score 계산 → 백테스트 검증 → UI 출력
+```
+
+### Phase 구조 (최종)
+
+```text
+Phase 1    인프라 정비                          ✅ 완료
+Phase 2    기술적 분석 + Mean Reversion + Minervini  ✅ 완료
+Phase 3    모멘텀 + Dual Momentum + Seasonality     ← 현재 작업
+Phase 3.5  Backtest Engine                     ← 신규 추가
+Phase 4    재무 분석 + Piotroski
+Phase 5    수급 분석 + CAN SLIM
+Phase 6    Magic Formula (유니버스 배치)
+Phase 7    REST API + React 프론트
+Phase 7.5  Meta Score + Strategy Explanation UI  ← 신규 추가
+Phase 8    AI 선택적 해석
+Phase 9    비교 + 필터링
+```
+
+---
+
 ## 전략별 데이터 의존도 & 구현 Phase
 
 | 전략 | 필요 데이터 | 구현 Phase | 지원 시장 |
@@ -41,7 +95,7 @@
 
 ---
 
-## Phase 2 — 기술적 분석 엔진 + 전략 2개
+## Phase 2 — 기술적 분석 엔진 + 전략 2개 ✅ 완료
 
 **목표**: 주가 시계열 → 기술적 지표 계산 + Mean Reversion / Minervini 전략
 
@@ -102,13 +156,56 @@ Bollinger   (40%): 현재가가 하단밴드 근처=100, 상단밴드 근처=0, 
 8. RS Rating ≥ 70 (없으면 나머지 7개로 비례 계산)
 ```
 
+### Strategy Explanation 내재화 (Phase 2부터 적용)
+
+Phase 2의 Calculator 반환 타입을 기존 `StrategyScore`에서 설명 가능한 구조로 확장.
+모든 Calculator는 점수와 함께 판단 근거를 반환한다.
+
+```java
+// 모든 StrategyCalculator의 반환 타입
+record StrategyAnalysisResult(
+    StrategyType type,
+    int score,
+    String grade,
+    Map<String, Integer> detail,
+    List<String> positives,
+    List<String> negatives,
+    List<String> neutralFactors
+)
+```
+
+**Minervini 예시:**
+```text
+Minervini 88점 (S)
+
+강점:
+✔ EMA150 > EMA200 정배열
+✔ 현재가 > EMA50
+✔ 52주 고점 근접
+
+약점:
+✘ 거래량 증가 부족
+```
+
+**Mean Reversion 예시:**
+```text
+Mean Reversion 72점
+
+강점:
+✔ RSI 28 (과매도)
+✔ 볼린저 하단 접근
+
+약점:
+✘ 하락 추세 지속
+```
+
 ### 테스트 완료 조건
-- [ ] `RsiCalculatorTest` — 정상값 3 + 경계값(전부 상승/전부 하락/변동없음) 3
-- [ ] `MacdCalculatorTest` — 크로스오버 시나리오 포함 5개
-- [ ] `BollingerBandCalculatorTest` — 5개
-- [ ] `EmaCalculatorTest` — 5개
-- [ ] `MeanReversionCalculatorTest` — 과매도/과매수/중립 시나리오 5개
-- [ ] `MinerviniCalculatorTest` — 조건 0개/4개/8개 충족 시나리오
+- [x] `RsiCalculatorTest` — 정상값 3 + 경계값(전부 상승/전부 하락/변동없음) 3
+- [x] `MacdCalculatorTest` — 크로스오버 시나리오 포함 5개
+- [x] `BollingerBandCalculatorTest` — 5개
+- [x] `EmaCalculatorTest` — 5개
+- [x] `MeanReversionCalculatorTest` — 과매도/과매수/중립 시나리오 5개
+- [x] `MinerviniCalculatorTest` — 조건 0개/4개/8개 충족 시나리오
 
 ---
 
@@ -156,6 +253,161 @@ Map<String, Map<Month, Integer>> SECTOR_MONTHLY_SCORE = Map.of(
     ...
 );
 // 섹터 매핑 안 되면 시장 평균 테이블 사용
+```
+
+### Phase 3 수정 사항
+- `StrategyInput` — momentum, marketRegime, sector 필드 추가
+- `MinerviniCalculator` — 조건 8 (rsRating ≥ 70) 정식 활성화
+
+---
+
+## Phase 3.5 — Backtest Engine ← 신규 추가
+
+**목표**: 전략 점수 시스템을 "좋아 보이는 점수"가 아닌 "실제로 성과가 있었는지 검증 가능한 전략"으로 발전
+
+### Backtest란?
+
+과거 데이터를 기반으로 "이 전략대로 투자했다면?" 을 시뮬레이션하는 기능.
+
+**예시:**
+```text
+2020~2025 동안
+Minervini 점수 80 이상 종목을
+매월 리밸런싱하며 매수
+→ 실제 수익률 계산
+```
+
+### 핵심 설계 원칙
+
+1. **실제 투자 흐름 재현**: 매수 → 보유 → 매도 → 리밸런싱 흐름 전체 시뮬레이션
+2. **전략 독립 구조**: Mean Reversion, Minervini, CAN SLIM, Meta Score 등 모든 전략 재사용 가능
+3. **기존 Calculator 재사용**: 실서비스 전략 계산 = 백테스트 전략 계산 (동일 유지)
+4. **미래 데이터 사용 금지**: 투자 당시 시점에서 알 수 있었던 데이터만 사용
+
+### 새 도메인 구조
+```
+domain/backtest/
+├── domain/
+│   ├── model/
+│   │   ├── BacktestRequest.java
+│   │   ├── BacktestResult.java
+│   │   ├── PortfolioSnapshot.java
+│   │   ├── Position.java
+│   │   └── TradeHistory.java
+│   │
+│   ├── service/
+│   │   ├── BacktestEngine.java
+│   │   ├── PortfolioSimulator.java
+│   │   ├── RebalanceService.java
+│   │   ├── TradeExecutionService.java
+│   │   └── PerformanceMetricService.java
+│   │
+│   └── calculator/
+│       ├── CAGRCalculator.java
+│       ├── MddCalculator.java
+│       ├── SharpeRatioCalculator.java
+│       └── WinRateCalculator.java
+│
+└── infrastructure/
+    ├── HistoricalPriceRepository.java
+    └── BacktestResultRepository.java
+```
+
+### BacktestRequest
+```java
+record BacktestRequest(
+    String strategyType,
+    LocalDate startDate,
+    LocalDate endDate,
+
+    int topN,
+    RebalancePeriod rebalancePeriod,
+
+    BigDecimal initialCapital,
+    boolean includeCash
+)
+```
+
+### BacktestResult
+```java
+record BacktestResult(
+    BigDecimal totalReturn,
+    BigDecimal cagr,
+    BigDecimal maxDrawdown,
+    BigDecimal sharpeRatio,
+    double winRate,
+
+    List<PortfolioSnapshot> portfolioHistory,
+    List<TradeHistory> trades
+)
+```
+
+### 핵심 성과 지표
+
+| 지표           | 의미       |
+| ------------ | -------- |
+| Total Return | 총 수익률    |
+| CAGR         | 연평균 수익률  |
+| MDD          | 최대 손실폭   |
+| Sharpe Ratio | 위험 대비 수익 |
+| Win Rate     | 승률       |
+
+### 리밸런싱
+```java
+enum RebalancePeriod {
+    DAILY,
+    WEEKLY,
+    MONTHLY
+}
+```
+
+### 거래 비용 반영
+```java
+commissionRate = 0.00015
+slippageRate = 0.001
+```
+
+### Benchmark 비교
+```text
+내 전략: +148%
+KOSPI:   +42%
+S&P500:  +61%
+```
+
+### 반드시 필요한 히스토리 저장
+```text
+technical_snapshot_history
+strategy_score_history
+daily_price_history
+```
+
+### Backtest 제약
+- 기술적 전략만 우선 (DART 과거 재무 데이터 없음)
+- PriceSnapshot 200일치 이상 있는 종목만
+- 비동기 실행 (@Async) + DB 저장 + polling
+
+### 추가 API
+```text
+POST /api/backtest/run
+GET  /api/backtest/{id}
+GET  /api/backtest/{id}/trades
+```
+
+### 프론트 UI
+```text
+전략 선택
+기간 선택
+리밸런싱 선택
+상위 N개 설정
+
+[ 실행 ]
+
+→ 결과:
+- 누적 수익률 그래프
+- CAGR
+- MDD
+- Sharpe Ratio
+- 거래 내역
 ```
 
 ---
@@ -403,6 +655,154 @@ frontend/
 
 ---
 
+## Phase 7.5 — Meta Score + Strategy Explanation UI ← 신규 추가
+
+**목표**: 여러 전략 결과를 하나의 종합 점수로 통합 + 설명 UI
+
+### 왜 필요한가
+
+현재 전략들은 서로 충돌 가능.
+
+| 전략             | 점수 |
+| -------------- | -- |
+| Mean Reversion | 80 |
+| Momentum       | 20 |
+
+사용자는 "그래서 좋은 종목인가?" 를 궁금해함.
+
+### 전략 카테고리
+
+| 카테고리        | 전략                        |
+| ----------- | ------------------------- |
+| Technical   | Mean Reversion, Minervini |
+| Momentum    | Dual Momentum             |
+| Fundamental | Piotroski, Magic Formula  |
+| Growth      | CAN SLIM                  |
+| Seasonal    | Seasonality               |
+
+### Meta Score 계산
+```text
+MetaScore =
+  Technical   25%
++ Momentum    20%
++ Fundamental 35%
++ Growth      15%
++ Seasonal     5%
+```
+
+### 시장 국면별 동적 가중치
+
+**Bull Market:**
+```text
+Momentum ↑ (+5%)
+Growth ↑ (+5%)
+Fundamental ↓ (-10%)
+```
+
+**Bear Market:**
+```text
+Fundamental ↑ (+10%)
+Mean Reversion ↑ (+5%)
+Momentum ↓ (-15%)
+```
+
+### 새 도메인 구조
+```
+domain/meta/
+├── MetaScoreCalculator.java
+├── StrategyWeightPolicy.java
+└── MarketAdaptiveWeightPolicy.java
+```
+
+### MetaAnalysisResult
+```java
+record MetaAnalysisResult(
+    int metaScore,
+    String grade,
+
+    String investmentStyle,
+
+    List<String> strongestStrategies,
+    List<String> weakestStrategies
+)
+```
+
+### 투자 스타일 자동 분류
+
+| 조건                | 스타일     |
+| ----------------- | ------- |
+| Momentum 높음       | 성장 모멘텀형 |
+| Fundamental 높음    | 가치주형    |
+| Mean Reversion 높음 | 반등형     |
+
+### Strategy Explanation UI
+
+**프론트 UI 개선:**
+```text
+Minervini 88점 (S)
+
+✔ EMA 정배열
+✔ EMA200 상승중
+✔ 52주 고점 근접
+
+✘ 거래량 부족
+```
+
+**Meta Score 프론트 UI:**
+```text
+종합 점수: 82 (S)
+
+투자 스타일:
+성장 모멘텀 우위형
+
+강한 전략:
+✔ Minervini
+✔ CAN SLIM
+✔ Dual Momentum
+
+약한 전략:
+✘ Mean Reversion
+```
+
+### Strategy Explanation 장점
+
+| 장점        | 설명            |
+| --------- | ------------- |
+| 사용자 신뢰 상승 | 왜 점수가 나왔는지 설명 |
+| AI 품질 향상  | 구조화된 근거 전달 가능 |
+| 유지보수 향상   | 문자열 하드코딩 제거   |
+| 다국어 대응    | 프론트 매핑 가능     |
+
+### AI 리포트 품질 개선
+
+**기존:**
+```json
+{
+  "score": 72
+}
+```
+
+**변경 후:**
+```json
+{
+  "score": 72,
+  "positives": [
+    "RSI 과매도",
+    "볼린저 하단 접근"
+  ],
+  "negatives": [
+    "거래량 감소"
+  ]
+}
+```
+
+### API 추가
+```text
+GET /api/analysis/{ticker}/meta
+```
+
+---
+
 ## Phase 8 — AI 선택적 해석
 
 **목표**: 7개 전략 점수 → AI 종합 해석 (선택적, 캐싱)
@@ -454,6 +854,18 @@ GET /api/stocks/search?minervini_score=70&piotroski_score=7&roe=15
 
 ---
 
+## 핵심 변화 요약
+
+| 기능          | 프로젝트에 생기는 변화  |
+| ----------- | ------------- |
+| Backtest    | 전략 검증 가능      |
+| Explanation | 설명 가능한 분석     |
+| Meta Score  | 사용자 친화적 종합 평가 |
+
+이 3개가 추가되면 프로젝트의 수준이 "주식 분석 서비스"에서 **"검증 가능한 설명형 퀀트 플랫폼"**으로 격상된다.
+
+---
+
 ## 주요 결정사항 기록
 
 | 날짜 | 결정 | 이유 |
@@ -464,3 +876,6 @@ GET /api/stocks/search?minervini_score=70&piotroski_score=7&roe=15
 | 2026-05-26 | 미국 주식 재무/수급 → Stub 처리 | Alpha Vantage 무료 한계, DART 한국 전용 |
 | 2026-05-26 | Phase 7에서 API + 프론트 동시 진행 | 조기 시각적 검증, 동기부여 |
 | 2026-05-26 | Calculator별 단위 테스트 의무화 | 금융 계산 버그는 조용히 틀린 숫자 출력 |
+| 2026-05-26 | Strategy Explanation Phase 2부터 내재화 | 나중에 바꾸면 전체 Calculator 재설계 필요 |
+| 2026-05-26 | Backtest Engine Phase 3.5 추가 | 기술적 전략 완성 직후 검증 가능 |
+| 2026-05-26 | Meta Score Phase 7.5 추가 | 7개 전략 완성 후 종합 평가 제공 |
