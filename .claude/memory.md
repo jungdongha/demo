@@ -1,5 +1,5 @@
 # Quant Platform — Agent Memory
-# Last Updated: 2026-05-26
+# Last Updated: 2026-05-27
 
 ## 프로젝트 전환 요약
 
@@ -16,8 +16,8 @@
 ## 현재 상태
 
 ```yaml
-phase: Phase 2 완료 → Phase 3 (모멘텀 + 시장국면 + 전략 2개) 시작
-branch: feature/phase3
+phase: Phase 3 완료 → Phase 4 (재무 분석 + Piotroski) 시작
+branch: feature/phase4
 base_package: com.obigo.demodong
 ```
 
@@ -89,21 +89,25 @@ KIS API + DART API + Stock 엔티티
 - `StrategyCalculator` 인터페이스, `StrategyInput/Score` record
 - 단위 테스트 Calculator별 5개 이상 완료
 
-### Phase 3 — 모멘텀 + 시장 국면 + 전략 2개 ← 현재 작업
+### Phase 3 ✅ 완료 (모멘텀 + 시장 국면 + 전략 2개)
 **신규 컴포넌트:**
 - `MomentumSnapshot` record (return1m/3m/6m/12m, rsRating)
-- `ReturnCalculator` (거래일 기준 기간별 수익률)
-- `RsRatingCalculator` (초과수익률 ±20% → 0~100 정규화)
+- `ReturnCalculator` (거래일 기준 기간별 수익률) — domain/technical
+- `RsRatingCalculator` (초과수익률 ±20% → 0~100 정규화) — domain/technical
 - `MarketRegimeService` (STRONG_BULL/BULL/SIDEWAYS/BEAR/CRISIS)
 - `SeasonalityTable` (infrastructure, 업종별 월별 점수 하드코딩)
-- **DualMomentumCalculator** (절대 50% + 상대 50%)
+- **DualMomentumCalculator** (절대 50% + 상대 50%, 시장국면 보정)
 - **SeasonalityCalculator** (SeasonalityTable 조회)
 
 **수정:**
 - `StrategyInput` — momentum, marketRegime, sector 필드 추가
 - `MinerviniCalculator` — 조건 8 (rsRating ≥ 70) 정식 활성화
 
-### Phase 4 — 재무 분석 엔진 + 전략 1개 (한국 완전지원)
+**구현 노트:**
+- 설계 문서의 `StrategyAnalysisResult` 대신 `StrategyScore` record 사용
+  (동일 구조: type/score/grade/detail/positives/negatives, neutralFactors는 미포함)
+
+### Phase 4 — 재무 분석 엔진 + 전략 1개 (한국 완전지원) ← 현재 작업
 - DART 재무제표 파싱 (계정과목 매핑 테이블 관리)
 - FundamentalSnapshot record
 - **Piotroski F-Score** 전략 (재무 준비 즉시 구현)
@@ -147,6 +151,22 @@ news_us: Yahoo Finance RSS
 stock_price: KIS API (KOR + USA)
 corporate_disclosure: DART API (KOR 전용)
 ```
+
+## ⚠️ Agent 실행 제약
+
+### Gradle/테스트 실행 금지
+DB = PostgreSQL (prod). 테스트/빌드 실행 시 DB 터널 필수.
+Agent가 직접 `./gradlew test` 또는 `./gradlew bootRun` 실행 금지.
+필요 시 사용자에게 명령:
+
+```
+[사용자 실행 필요]
+1. scripts/tunnel.sh 실행 (SSH → RDS 터널 오픈)
+2. ./gradlew test 실행
+```
+
+터널 스크립트: `scripts/tunnel.sh`
+env 필요: EC2_HOST, EC2_USER, PEM_KEY (또는 기본값 사용)
 
 ---
 
@@ -193,10 +213,10 @@ StrategyAnalysisResult calculate(StrategyInput input);
 ### 전체 Phase (최종)
 ```
 Phase 1:   인프라 ✅
-Phase 2:   기술적 분석 + Mean Reversion + Minervini ← 다음 작업
-Phase 3:   모멘텀 + Dual Momentum + Seasonality
+Phase 2:   기술적 분석 + Mean Reversion + Minervini ✅
+Phase 3:   모멘텀 + Dual Momentum + Seasonality ✅
 Phase 3.5: Backtest Engine
-Phase 4:   재무 분석 + Piotroski
+Phase 4:   재무 분석 + Piotroski ← 현재 작업
 Phase 5:   수급 분석 + CAN SLIM
 Phase 6:   Magic Formula (유니버스 배치)
 Phase 7:   REST API + React 프론트

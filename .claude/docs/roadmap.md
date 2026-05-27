@@ -50,9 +50,9 @@
 ```text
 Phase 1    인프라 정비                          ✅ 완료
 Phase 2    기술적 분석 + Mean Reversion + Minervini  ✅ 완료
-Phase 3    모멘텀 + Dual Momentum + Seasonality     ← 현재 작업
+Phase 3    모멘텀 + Dual Momentum + Seasonality     ✅ 완료
 Phase 3.5  Backtest Engine                     ← 신규 추가
-Phase 4    재무 분석 + Piotroski
+Phase 4    재무 분석 + Piotroski               ← 현재 작업
 Phase 5    수급 분석 + CAN SLIM
 Phase 6    Magic Formula (유니버스 배치)
 Phase 7    REST API + React 프론트
@@ -209,7 +209,7 @@ Mean Reversion 72점
 
 ---
 
-## Phase 3 — 모멘텀 + 시장 국면 + 전략 2개
+## Phase 3 — 모멘텀 + 시장 국면 + 전략 2개 ✅ 완료
 
 **목표**: 기간별 수익률 계산 + 시장 국면 판단 + Dual Momentum / Seasonality
 
@@ -412,7 +412,7 @@ GET  /api/backtest/{id}/trades
 
 ---
 
-## Phase 4 — 재무 분석 엔진 + Piotroski
+## Phase 4 — 재무 분석 엔진 + Piotroski ← 현재 작업
 
 **목표**: DART 재무제표 파싱 + Piotroski F-Score 전략 (한국 전용)
 
