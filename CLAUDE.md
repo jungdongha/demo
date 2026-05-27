@@ -121,12 +121,14 @@ public interface StrategyCalculator {
 
 | Phase | 목표 | 상태 |
 |---|---|---|
-| Phase 1 | 데이터 수집 인프라 정비 (KIS + DART 재활용) | 완료 |
-| Phase 2 | 기술적 분석 엔진 (RSI / MACD / Bollinger 등) | 대기 |
-| Phase 3 | 재무 분석 엔진 (PER / ROE / EPS 등) | 대기 |
-| Phase 4 | 7개 전략 Score 계산기 구현 | 대기 |
-| Phase 5 | Spring Boot REST API 설계 및 구현 | 대기 |
-| Phase 6 | React(Vite) 프론트 종목 분석 페이지 | 대기 |
-| Phase 7 | 수급 분석 (기관 / 외국인 + 거래량) | 대기 |
+| Phase 1 | 데이터 수집 인프라 정비 (KIS + DART 재활용) | ✅ 완료 |
+| Phase 2 | 기술적 분석 엔진 (RSI / MACD / Bollinger) + MeanReversion + Minervini | ✅ 완료 |
+| Phase 3 | 모멘텀 엔진 + DualMomentum + Seasonality | ✅ 완료 |
+| Phase 3.5 | Backtest Engine | 대기 |
+| Phase 4 | 재무 분석 엔진 (DART 파싱) + Piotroski | ✅ 완료 |
+| Phase 5 | 수급 분석 (KIS 매매동향) + CAN SLIM | ✅ 완료 |
+| Phase 6 | Magic Formula 유니버스 배치 (ROIC + Earnings Yield 순위 DB 저장) | ✅ 완료 |
+| Phase 7 | Spring Boot REST API + React(Vite) 프론트 동시 진행 | **다음** |
+| Phase 7.5 | Meta Score + Strategy Explanation UI | 대기 |
 | Phase 8 | AI 선택적 해석 (캐싱, 최소 호출) | 대기 |
 | Phase 9 | 종목 비교 + 전략 필터링 | 대기 |

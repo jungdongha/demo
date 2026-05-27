@@ -52,7 +52,12 @@ public record FundamentalSnapshot(
 
         // ── Dilution ──
         Long sharesOutstanding,             // 보통주 발행주식수 당기 — Piotroski F6
-        Long prevSharesOutstanding          // 보통주 발행주식수 전기 — Piotroski F6
+        Long prevSharesOutstanding,          // 보통주 발행주식수 전기 — Piotroski F6
+
+        // ── Magic Formula (Phase 6) ──
+        BigDecimal roic,                    // 투하자본수익률 (%)
+        BigDecimal earningsYield,           // 이익수익률 (%)
+        BigDecimal operatingProfit          // 영업이익 (원)
 
 ) {
     /**
@@ -67,7 +72,8 @@ public record FundamentalSnapshot(
                 null, null, null, null,
                 null, null, null, null,
                 null,
-                null, null
+                null, null,
+                null, null, null
         );
     }
 
