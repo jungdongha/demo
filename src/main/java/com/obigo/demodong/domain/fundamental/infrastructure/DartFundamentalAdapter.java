@@ -108,6 +108,7 @@ public class DartFundamentalAdapter {
             BigDecimal grossProfit      = accountCodeMapper.findAmount("grossProfit",        accounts, true);
             BigDecimal revenue          = accountCodeMapper.findAmount("revenue",            accounts, true);
             Long sharesOut              = accountCodeMapper.findLongAmount("sharesOutstanding", accounts, true);
+            BigDecimal operatingProfit  = accountCodeMapper.findAmount("operatingProfit",    accounts, true);
 
             // ── 전기 원시 값 ──
             BigDecimal prevNetIncome    = accountCodeMapper.findAmount("netIncome",          accounts, false);
@@ -125,6 +126,13 @@ public class DartFundamentalAdapter {
             BigDecimal currentRatio        = divide(currentAssets, currentLiab);
             BigDecimal grossProfitMargin   = dividePercent(grossProfit, revenue);
             BigDecimal assetTurnover       = divide(revenue, totalAssets);
+
+            // ── Magic Formula 당기 ROIC 계산 (영업이익 / (총자산 - 유동부채) * 100) ──
+            BigDecimal investedCapital = null;
+            if (totalAssets != null && currentLiab != null) {
+                investedCapital = totalAssets.subtract(currentLiab);
+            }
+            BigDecimal roic = dividePercent(operatingProfit, investedCapital);
 
             // ── 전기 비율 계산 ──
             BigDecimal prevRoa             = dividePercent(prevNetIncome, prevTotalAssets);
@@ -146,7 +154,10 @@ public class DartFundamentalAdapter {
                     grossProfitMargin, prevGPM,
                     assetTurnover, prevAssetTurnover,
                     revenueGrowthYoy,
-                    sharesOut, prevSharesOut
+                    sharesOut, prevSharesOut,
+                    roic,
+                    null,                           // earningsYield — FundamentalDataAdapter.merge에서 채움
+                    operatingProfit
             );
         } catch (Exception e) {
             log.warn("[DART-Fundamental] 스냅샷 생성 실패 - corpCode: {}, error: {}", corpCode, e.getMessage());

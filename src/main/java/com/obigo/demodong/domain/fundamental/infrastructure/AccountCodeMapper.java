@@ -28,7 +28,8 @@ public class AccountCodeMapper {
             "currentLiabilities", List.of("유동부채"),
             "grossProfit",        List.of("매출총이익", "매출총손익"),
             "revenue",            List.of("매출액", "수익(매출액)", "영업수익", "매출"),
-            "sharesOutstanding",  List.of("보통주발행주식수", "발행주식수", "보통주식의 발행주식수")
+            "sharesOutstanding",  List.of("보통주발행주식수", "발행주식수", "보통주식의 발행주식수"),
+            "operatingProfit",    List.of("영업이익", "영업손익", "영업이익(손실)", "연결영업이익")
     );
 
     /**

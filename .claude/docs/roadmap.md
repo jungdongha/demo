@@ -52,10 +52,10 @@ Phase 1    인프라 정비                          ✅ 완료
 Phase 2    기술적 분석 + Mean Reversion + Minervini  ✅ 완료
 Phase 3    모멘텀 + Dual Momentum + Seasonality     ✅ 완료
 Phase 3.5  Backtest Engine                     ← 신규 추가
-Phase 4    재무 분석 + Piotroski               ← 현재 작업
-Phase 5    수급 분석 + CAN SLIM
-Phase 6    Magic Formula (유니버스 배치)
-Phase 7    REST API + React 프론트
+Phase 4    재무 분석 + Piotroski               ✅ 완료
+Phase 5    수급 분석 + CAN SLIM               ✅ 완료
+Phase 6    Magic Formula (유니버스 배치)      ✅ 완료 — 7개 전략 전부 완성
+Phase 7    REST API + React 프론트             ← 다음 작업
 Phase 7.5  Meta Score + Strategy Explanation UI  ← 신규 추가
 Phase 8    AI 선택적 해석
 Phase 9    비교 + 필터링
@@ -412,7 +412,7 @@ GET  /api/backtest/{id}/trades
 
 ---
 
-## Phase 4 — 재무 분석 엔진 + Piotroski ← 현재 작업
+## Phase 4 — 재무 분석 엔진 + Piotroski ✅ 완료
 
 **목표**: DART 재무제표 파싱 + Piotroski F-Score 전략 (한국 전용)
 
@@ -487,7 +487,7 @@ API 응답에 "재무 분석은 한국 상장 종목만 지원합니다" 필드 
 
 ---
 
-## Phase 5 — 수급 분석 + CAN SLIM
+## Phase 5 — 수급 분석 + CAN SLIM ✅ 완료
 
 **목표**: 기관/외국인 매매동향 수집 + CAN SLIM 전략 (한국 전용)
 
@@ -531,33 +531,80 @@ M (Market Direction)   : BULL=100, SIDEWAYS=50, BEAR=0
 
 ---
 
-## Phase 6 — Magic Formula (유니버스 배치)
+## Phase 6 — Magic Formula (유니버스 배치) ✅ 완료
 
-**목표**: 전체 종목 상대 순위 기반 Magic Formula (한국 전용)
+**목표**: 전체 종목 상대 순위 기반 Magic Formula (한국 전용) — **이 Phase로 7개 전략 전부 완성**
 
 ### 단일 종목 계산이 불가능한 이유
 Magic Formula의 핵심은 "유니버스 안에서 ROIC 순위와 Earnings Yield 순위를 합산"하는 것.
 종목 하나만 입력받으면 순위를 알 수 없음.
 
-### 유니버스 배치 구조
+### 구현 완료 컴포넌트
 ```
 domain/analysis/
-└── infrastructure/
-    ├── MagicFormulaUniverse.java  (엔티티 — 분석 대상 종목 관리)
-    ├── MagicFormulaRank.java      (엔티티 — 계산된 순위 저장)
-    └── MagicFormulaBatchService.java
-        // @Scheduled(cron="0 0 18 * * MON-FRI") 매 거래일 18시
-        // 전체 유니버스 ROIC + EarningsYield 계산 → 순위 정렬 → DB 저장
+├── domain/
+│   ├── entity/
+│   │   ├── MagicFormulaUniverse.java    ← 유니버스 종목 관리 (active 플래그)
+│   │   └── MagicFormulaRank.java        ← 일자별 roicRank/eyRank/combinedRank 저장
+│   ├── repository/
+│   │   ├── MagicFormulaUniverseRepository.java
+│   │   └── MagicFormulaRankRepository.java
+│   ├── calculator/
+│   │   └── MagicFormulaCalculator.java  ← percentile 변환 [2,N×2]→[100,0]
+│   └── service/
+│       └── MagicFormulaBatchService.java  ← @Scheduled 18시 / @PostConstruct 초기화
+└── presentation/
+    └── MagicFormulaUniverseController.java  ← 관리자 API
 
-MagicFormulaCalculator:
-    // DB에서 해당 ticker 순위 조회 → 점수 반환
-    // 순위 없으면 → 50점 중립
+domain/fundamental/ (Phase 6 보완)
+├── domain/model/FundamentalSnapshot.java  ← roic/earningsYield/operatingProfit 추가
+└── infrastructure/
+    ├── AccountCodeMapper.java    ← operatingProfit 계정과목 추가
+    ├── DartFundamentalAdapter.java  ← ROIC 계산 로직 추가
+    └── FundamentalDataAdapter.java  ← Earnings Yield 병합 계산
+```
+
+### 순위 계산 로직
+```
+ROIC 내림차순 정렬 → roicRank 1, 2, 3 ...
+EarningsYield 내림차순 정렬 → eyRank 1, 2, 3 ...
+combinedRank = roicRank + eyRank (낮을수록 우수)
+점수 변환: score = (maxRank - combinedRank) / (maxRank - minRank) × 100
+  where maxRank = universeSize × 2, minRank = 2
+null 종목 → 최하위 순위로 처리
+```
+
+### FundamentalSnapshot 보완 내용
+```
+roic          = 영업이익 / (총자산 - 유동부채) × 100  (DART 계산)
+earningsYield = 영업이익 / (시가총액억원 × 1,000,000)  (KIS 병합 계산)
+operatingProfit = DART 영업이익 원화 절대값
+AccountCodeMapper ← operatingProfit 계정과목 우선순위 4종 추가
 ```
 
 ### 유니버스 관리
 ```
-초기: KOR 대형주 100~200종목 (@PostConstruct 초기화)
-확장: 관리자 API로 추가/제거 가능
+초기: @PostConstruct 시 한국 대형주 10종목 자동 주입 (삼성전자, SK하이닉스 등)
+확장: POST /api/admin/magic-formula/universe 로 추가 가능
+스케줄: @Scheduled(cron="0 0 18 * * MON-FRI") 매 거래일 18시 자동 연산
+```
+
+### 관리자 API
+```
+GET    /api/admin/magic-formula/universe          # 유니버스 목록
+POST   /api/admin/magic-formula/universe          # 종목 추가
+DELETE /api/admin/magic-formula/universe/{ticker} # 종목 비활성화
+POST   /api/admin/magic-formula/run               # 수동 배치 실행
+GET    /api/admin/magic-formula/ranks?date=       # 특정일 순위표
+```
+
+### 단위 테스트 (MagicFormulaCalculatorTest)
+```
+1. 최상위 순위 (combinedRank=2, universeSize=100) → 100점 S등급
+2. 중간 순위  (combinedRank=100, universeSize=100) → 51점 B등급
+3. 최하위 순위 (combinedRank=200, universeSize=100) → 0점 D등급
+4. 미국 주식 (MarketType.USA) → 50점 중립
+5. 순위 데이터 없음 → 50점 중립
 ```
 
 ---

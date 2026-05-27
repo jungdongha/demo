@@ -8,6 +8,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
+import java.math.BigDecimal;
+
 /**
  * {@link FundamentalDataPort} 구현체.
  *
@@ -48,6 +50,21 @@ public class FundamentalDataAdapter implements FundamentalDataPort {
      * DART 스냅샷의 per/pbr/eps/marketCap 은 null이므로 KIS 값으로 채운다.
      */
     private FundamentalSnapshot merge(FundamentalSnapshot dart, KisMarketRatios ratios) {
+        BigDecimal earningsYield = null;
+        if (dart.operatingProfit() != null && ratios.marketCap() != null && ratios.marketCap().compareTo(BigDecimal.ZERO) > 0) {
+            // marketCap: 억 원 단위 -> 원 단위 환산 (marketCap * 100,000,000)
+            // EY (%) = (영업이익 / 시가총액_원) * 100
+            //        = 영업이익 / (marketCap * 1,000,000)
+            BigDecimal denominator = ratios.marketCap().multiply(BigDecimal.valueOf(1_000_000));
+            try {
+                earningsYield = dart.operatingProfit()
+                        .divide(denominator, new java.math.MathContext(10, java.math.RoundingMode.HALF_UP))
+                        .setScale(2, java.math.RoundingMode.HALF_UP);
+            } catch (Exception e) {
+                log.warn("[Fundamental-Merge] Earnings Yield 계산 실패: {}", e.getMessage());
+            }
+        }
+
         return new FundamentalSnapshot(
                 ratios.per(),
                 ratios.pbr(),
@@ -68,7 +85,10 @@ public class FundamentalDataAdapter implements FundamentalDataPort {
                 dart.prevAssetTurnover(),
                 dart.revenueGrowthYoy(),
                 dart.sharesOutstanding(),
-                dart.prevSharesOutstanding()
+                dart.prevSharesOutstanding(),
+                dart.roic(),
+                earningsYield,
+                dart.operatingProfit()
         );
     }
 }

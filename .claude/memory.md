@@ -1,5 +1,5 @@
 # Quant Platform — Agent Memory
-# Last Updated: 2026-05-27
+# Last Updated: 2026-05-27 (Phase 6 완료)
 
 ## 프로젝트 전환 요약
 
@@ -16,8 +16,8 @@
 ## 현재 상태
 
 ```yaml
-phase: Phase 4 완료 → Phase 5 (수급 분석 + CAN SLIM) 시작
-branch: feature/phase5
+phase: Phase 6 완료 → Phase 7 (REST API + React 프론트) 시작
+branch: feature/phase6
 base_package: com.obigo.demodong
 ```
 
@@ -107,24 +107,42 @@ KIS API + DART API + Stock 엔티티
 - 설계 문서의 `StrategyAnalysisResult` 대신 `StrategyScore` record 사용
   (동일 구조: type/score/grade/detail/positives/negatives, neutralFactors는 미포함)
 
-### Phase 4 — 재무 분석 엔진 + 전략 1개 (한국 완전지원) ← 현재 작업
-- DART 재무제표 파싱 (계정과목 매핑 테이블 관리)
-- FundamentalSnapshot record
-- **Piotroski F-Score** 전략 (재무 준비 즉시 구현)
+### Phase 4 ✅ 완료 (재무 분석 엔진 + 전략 1개, 한국 완전지원)
+- DART 재무제표 파싱 (AccountCodeMapper — 계정과목 매핑 테이블)
+- `FundamentalSnapshot` record (Phase 6에서 roic/earningsYield/operatingProfit 필드 추가)
+- **PiotroskiCalculator** (9항목 × 11.1 = 0~100, 재무만 DART)
 - 미국: FundamentalSnapshot.stub() 반환
+- DartFundamentalAdapter + KisFundamentalAdapter + FundamentalDataAdapter
 
-### Phase 5 — 수급 분석 + 전략 1개
-- KIS 투자자별 매매동향 API 연동
-- FlowSnapshot record
-- **CAN SLIM** 전략 (재무 + 기술 + 수급 통합)
+### Phase 5 ✅ 완료 (수급 분석 + 전략 1개)
+- KIS 투자자별 매매동향 API 연동 (`KisInvestorFlowAdapter`)
+- `FlowSnapshot` record (institutionalNetBuy/foreignerNetBuy/volumeChangeRate 등)
+- **CANSLIMCalculator** (7항목 가중 평균: C/A/N/S/L/I/M, 재무+기술+수급 통합)
+- 미국: FlowSnapshot.stub() → S/I 항목 50점 중립
 
-### Phase 6 — Magic Formula (유니버스 배치)
-- QuantUniverse 관리 (KOR 최소 100종목)
-- 배치 스케줄러로 전체 ROIC/EarningsYield 순위 사전 계산
-- **Magic Formula** 전략 (상대 순위 DB 조회)
-- 이 시점에 7개 전략 전부 완성
+### Phase 6 ✅ 완료 (Magic Formula — 유니버스 배치)
+**구현 완료 컴포넌트:**
+- `MagicFormulaUniverse` 엔티티 (분석 대상 종목 관리, active 플래그)
+- `MagicFormulaRank` 엔티티 (일자별 roicRank/eyRank/combinedRank 저장)
+- `MagicFormulaUniverseRepository`, `MagicFormulaRankRepository`
+- `MagicFormulaBatchService` (@Scheduled 매 거래일 18시, @PostConstruct 대형주 10종목 초기화)
+- **MagicFormulaCalculator** (DB 순위 조회 → percentile 변환 [2,universeSize×2] → [100,0]점)
+- `MagicFormulaUniverseController` (관리자 API: universe CRUD + 수동 배치 실행 + 순위표 조회)
+- `MagicFormulaCalculatorTest` (5개 시나리오: 최상위/중간/최하위/미국중립/순위없음중립)
 
-### Phase 7 — REST API + React 프론트 (동시)
+**FundamentalSnapshot 보완 (Phase 6 이슈):**
+- `operatingProfit` (DART 영업이익 원화 절대값)
+- `roic` (DART: 영업이익 / (총자산 - 유동부채) × 100)
+- `earningsYield` (영업이익 / (KIS시가총액 × 1,000,000) — merge 시 계산)
+- `AccountCodeMapper` — `operatingProfit` 계정과목 추가 (영업이익/영업손익 등 4종)
+
+**7개 전략 전부 완성 확인:**
+```
+MEAN_REVERSION ✅  MINERVINI ✅  DUAL_MOMENTUM ✅  SEASONALITY ✅
+PIOTROSKI ✅  CANSLIM ✅  MAGIC_FORMULA ✅
+```
+
+### Phase 7 — REST API + React 프론트 (동시) ← 다음 작업
 - Spring Boot API 7개 전략 전부 노출
 - React(Vite) 종목 분석 페이지 UI
 - API + 프론트 같이 진행
@@ -216,10 +234,10 @@ Phase 1:   인프라 ✅
 Phase 2:   기술적 분석 + Mean Reversion + Minervini ✅
 Phase 3:   모멘텀 + Dual Momentum + Seasonality ✅
 Phase 3.5: Backtest Engine
-Phase 4:   재무 분석 + Piotroski ← 현재 작업
-Phase 5:   수급 분석 + CAN SLIM
-Phase 6:   Magic Formula (유니버스 배치)
-Phase 7:   REST API + React 프론트
+Phase 4:   재무 분석 + Piotroski ✅
+Phase 5:   수급 분석 + CAN SLIM ✅
+Phase 6:   Magic Formula (유니버스 배치) ✅
+Phase 7:   REST API + React 프론트 ← 다음 작업
 Phase 7.5: Meta Score + Strategy Explanation UI
 Phase 8:   AI 선택적 해석
 Phase 9:   비교 + 필터링
