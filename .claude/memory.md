@@ -16,8 +16,8 @@
 ## 현재 상태
 
 ```yaml
-phase: Phase 3 완료 → Phase 4 (재무 분석 + Piotroski) 시작
-branch: feature/phase4
+phase: Phase 4 완료 → Phase 5 (수급 분석 + CAN SLIM) 시작
+branch: feature/phase5
 base_package: com.obigo.demodong
 ```
 
