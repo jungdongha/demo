@@ -17,5 +17,8 @@ public interface StockPricePort {
      * @return [고가, 저가] 쌍
      */
     Optional<BigDecimal[]> fetch52WeekRange(Stock stock);
+
+    /** 종목명 조회. 미지원 또는 실패 시 null 반환. */
+    String fetchStockName(Stock stock);
 }
 

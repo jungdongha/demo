@@ -85,9 +85,8 @@ public class MinerviniCalculator implements StrategyCalculator {
 
         // 조건 2: EMA200 최근 20거래일 우상향
         if (ema200Prev == null) {
-            // 데이터 부족 → 조건 제외
             totalConditions--;
-            detail.put("c2_ema200_uptrend", -1); // -1 = 데이터 없음
+            // 데이터 없음 → detail 제외
         } else {
             boolean c2 = ema200 != null && ema200.compareTo(ema200Prev) > 0;
             detail.put("c2_ema200_uptrend", c2 ? 1 : 0);
@@ -124,7 +123,6 @@ public class MinerviniCalculator implements StrategyCalculator {
         // 조건 6: 현재가 ≥ 52주 저점 × 1.30
         if (low52w == null) {
             totalConditions--;
-            detail.put("c6_above_52w_low_130pct", -1);
         } else {
             boolean c6 = price.compareTo(low52w.multiply(LOW_52W_MULTIPLIER)) >= 0;
             detail.put("c6_above_52w_low_130pct", c6 ? 1 : 0);
@@ -139,7 +137,6 @@ public class MinerviniCalculator implements StrategyCalculator {
         // 조건 7: 현재가 ≥ 52주 고점 × 0.75
         if (high52w == null) {
             totalConditions--;
-            detail.put("c7_within_52w_high_75pct", -1);
         } else {
             boolean c7 = price.compareTo(high52w.multiply(HIGH_52W_MULTIPLIER)) >= 0;
             detail.put("c7_within_52w_high_75pct", c7 ? 1 : 0);
@@ -154,7 +151,6 @@ public class MinerviniCalculator implements StrategyCalculator {
         // 조건 8: RS Rating ≥ 70
         if (input.momentum() == null) {
             totalConditions--;
-            detail.put("c8_rs_rating", -1);
         } else {
             boolean c8 = input.momentum().rsRating() >= 70;
             detail.put("c8_rs_rating", c8 ? 1 : 0);

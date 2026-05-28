@@ -188,6 +188,14 @@ env 필요: EC2_HOST, EC2_USER, PEM_KEY (또는 기본값 사용)
 
 ---
 
+## 버그 수정 이력
+
+### 2026-05-28
+- **currentPrice 실시간화**: `AnalysisUseCase.analyze()`에서 `fetchCurrentPrice()` 호출 추가.
+  `TechnicalResponse.from()`에 `realTimePrice` 파라미터 추가, null 시 마지막 종가 fallback.
+- **"0001" USA 오분류 수정**: `resolveStock()`의 MarketType 판별 `\d{6}` → `\d+` (4자리 KOSPI 지수 등 포함).
+  영향 파일: `AnalysisUseCase.java`, `TechnicalResponse.java`
+
 ## 주요 원칙
 
 - KIS API: 실전/모의 전환은 application.yml kis.base-url로만

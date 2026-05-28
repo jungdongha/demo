@@ -3,6 +3,8 @@ package com.obigo.demodong.domain.flow.infrastructure;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.obigo.demodong.domain.flow.domain.model.FlowSnapshot;
+
+import java.util.List;
 import com.obigo.demodong.domain.price.infrastructure.kis.KisTokenManager;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -45,12 +47,12 @@ public class KisFlowAdapter {
                     .bodyToMono(KisInvestorResponse.class)
                     .block();
 
-            if (response == null || response.output() == null) {
+            if (response == null || response.output1() == null || response.output1().isEmpty()) {
                 log.debug("[KIS-Flow] 응답 없음 - ticker: {}", ticker);
                 return FlowSnapshot.stub();
             }
 
-            KisInvestorOutput o = response.output();
+            KisInvestorOutput o = response.output1().get(0); // 최신(당일) 데이터
             return new FlowSnapshot(
                     parseLong(o.orgnNtbyQty()),
                     parseLong(o.frgnNtbyQty()),
@@ -77,9 +79,9 @@ public class KisFlowAdapter {
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record KisInvestorResponse(
-            KisInvestorOutput output,
-            @JsonProperty("rt_cd") String rtCd,
-            @JsonProperty("msg1")  String msg1
+            @JsonProperty("output1") List<KisInvestorOutput> output1,
+            @JsonProperty("rt_cd")   String rtCd,
+            @JsonProperty("msg1")    String msg1
     ) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
