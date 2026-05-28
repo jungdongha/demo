@@ -1,0 +1,89 @@
+package com.obigo.demodong.domain.analysis.presentation;
+
+import com.obigo.demodong.domain.analysis.application.dto.response.AnalysisResponse;
+import com.obigo.demodong.domain.analysis.application.dto.response.StockSearchResponse;
+import com.obigo.demodong.domain.analysis.application.usecase.AnalysisUseCase;
+import com.obigo.demodong.domain.analysis.application.usecase.StockSearchUseCase;
+import com.obigo.demodong.domain.analysis.domain.enums.MarketRegime;
+import com.obigo.demodong.domain.analysis.domain.service.MarketRegimeService;
+import com.obigo.demodong.domain.price.domain.entity.PriceSnapshot;
+import com.obigo.demodong.domain.price.domain.port.StockPricePort;
+import com.obigo.demodong.domain.stock.domain.entity.Stock;
+import com.obigo.demodong.global.common.response.ApiResponse;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.web.bind.annotation.*;
+
+import java.math.BigDecimal;
+import java.util.List;
+
+/**
+ * 종목 분석 REST API 컨트롤러.
+ *
+ * <p>엔드포인트:</p>
+ * <ul>
+ *   <li>GET /api/analysis/{ticker} — 7전략 + 기술/재무/수급 통합 분석</li>
+ *   <li>GET /api/stocks/search?q=  — 종목 검색</li>
+ *   <li>GET /api/market/regime     — 현재 시장 국면</li>
+ * </ul>
+ */
+@Slf4j
+@RestController
+@RequestMapping("/api")
+@RequiredArgsConstructor
+public class AnalysisController {
+
+    private final AnalysisUseCase analysisUseCase;
+    private final StockSearchUseCase stockSearchUseCase;
+    private final MarketRegimeService marketRegimeService;
+    private final StockPricePort stockPricePort;
+
+    /**
+     * 종목 통합 분석.
+     *
+     * @param ticker 종목코드 (예: 005930, AAPL)
+     */
+    @GetMapping("/analysis/{ticker}")
+    public ApiResponse<AnalysisResponse> analyze(@PathVariable String ticker) {
+        log.info("[API] GET /api/analysis/{}", ticker);
+        return ApiResponse.ok(
+                AnalysisResponseCode.ANALYSIS_SUCCESS,
+                analysisUseCase.analyze(ticker)
+        );
+    }
+
+    /**
+     * 종목 검색.
+     *
+     * @param q 검색어 (종목코드 / 영문 티커 / 한글 회사명)
+     */
+    @GetMapping("/stocks/search")
+    public ApiResponse<List<StockSearchResponse>> search(@RequestParam String q) {
+        log.info("[API] GET /api/stocks/search?q={}", q);
+        return ApiResponse.ok(
+                AnalysisResponseCode.STOCK_SEARCH_SUCCESS,
+                stockSearchUseCase.search(q)
+        );
+    }
+
+    /**
+     * 현재 시장 국면 조회.
+     * KOSPI 지수 주가 기반 (STRONG_BULL / BULL / SIDEWAYS / BEAR / CRISIS).
+     */
+    @GetMapping("/market/regime")
+    public ApiResponse<String> getMarketRegime() {
+        log.info("[API] GET /api/market/regime");
+        try {
+            Stock kospi = analysisUseCase.resolveStock("0001");
+            List<PriceSnapshot> prices = stockPricePort.fetchMonthlyPrices(kospi);
+            List<BigDecimal> closes = prices.stream()
+                    .map(PriceSnapshot::getClosePrice)
+                    .toList();
+            MarketRegime regime = marketRegimeService.determine(closes);
+            return ApiResponse.ok(AnalysisResponseCode.MARKET_REGIME_SUCCESS, regime.name());
+        } catch (Exception e) {
+            log.warn("[API] 시장 국면 조회 실패: {}", e.getMessage());
+            return ApiResponse.ok(AnalysisResponseCode.MARKET_REGIME_SUCCESS, MarketRegime.SIDEWAYS.name());
+        }
+    }
+}

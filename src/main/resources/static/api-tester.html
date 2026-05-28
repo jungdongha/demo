@@ -1,0 +1,880 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Quant Platform — API Tester</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+    :root {
+      --bg: #0a0d14;
+      --surface: #111520;
+      --surface2: #161c2d;
+      --border: #1e2740;
+      --accent: #6366f1;
+      --accent2: #8b5cf6;
+      --green: #10b981;
+      --red: #ef4444;
+      --yellow: #f59e0b;
+      --cyan: #06b6d4;
+      --text: #e2e8f0;
+      --muted: #64748b;
+      --radius: 12px;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'Inter', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── Header ── */
+    header {
+      background: linear-gradient(135deg, #1a1f35 0%, #0f1628 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 20px 32px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(12px);
+    }
+    .logo { font-size: 22px; font-weight: 700; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .badge { font-size: 11px; padding: 3px 10px; border-radius: 99px; background: rgba(99,102,241,.2); color: var(--accent); border: 1px solid rgba(99,102,241,.3); font-weight: 500; }
+    .base-url-wrap { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+    .base-url-wrap label { font-size: 12px; color: var(--muted); }
+    #baseUrl {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12px;
+      padding: 6px 12px;
+      width: 220px;
+    }
+    #statusDot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--muted);
+      transition: background .3s;
+    }
+    #statusDot.online { background: var(--green); box-shadow: 0 0 8px var(--green); }
+    #statusDot.offline { background: var(--red); }
+
+    /* ── Layout ── */
+    .container { display: grid; grid-template-columns: 240px 1fr; min-height: calc(100vh - 65px); }
+
+    /* ── Sidebar ── */
+    nav {
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      padding: 24px 0;
+      position: sticky;
+      top: 65px;
+      height: calc(100vh - 65px);
+      overflow-y: auto;
+    }
+    .nav-section { padding: 0 16px 8px; font-size: 10px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; }
+    .nav-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 20px;
+      cursor: pointer;
+      font-size: 13px;
+      color: var(--muted);
+      border-left: 2px solid transparent;
+      transition: all .2s;
+    }
+    .nav-item:hover { color: var(--text); background: rgba(255,255,255,.03); }
+    .nav-item.active { color: var(--accent); border-left-color: var(--accent); background: rgba(99,102,241,.06); }
+    .method-badge {
+      font-size: 9px; font-weight: 700; padding: 2px 6px; border-radius: 4px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .get  { background: rgba(6,182,212,.15);  color: var(--cyan); }
+    .post { background: rgba(16,185,129,.15); color: var(--green); }
+    .del  { background: rgba(239,68,68,.15);  color: var(--red); }
+
+    /* ── Main ── */
+    main { padding: 32px; overflow-y: auto; }
+
+    /* ── Panel ── */
+    .panel {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 24px;
+      overflow: hidden;
+      display: none;
+    }
+    .panel.active { display: block; animation: fadeIn .25s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+    .panel-header {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 12px;
+    }
+    .panel-header h2 { font-size: 16px; font-weight: 600; }
+    .panel-header .desc { font-size: 13px; color: var(--muted); margin-left: auto; }
+
+    /* ── Form ── */
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-row { display: flex; gap: 12px; padding: 20px 24px; flex-wrap: wrap; align-items: flex-end; }
+    label { font-size: 12px; font-weight: 500; color: var(--muted); }
+    input, select {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'Inter', sans-serif;
+      font-size: 14px;
+      padding: 9px 14px;
+      outline: none;
+      transition: border-color .2s;
+      min-width: 180px;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    textarea {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 13px;
+      padding: 12px 14px;
+      outline: none;
+      resize: vertical;
+      width: 100%;
+      min-height: 80px;
+      transition: border-color .2s;
+    }
+    textarea:focus { border-color: var(--accent); }
+
+    /* ── Buttons ── */
+    .btn {
+      padding: 9px 20px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-size: 13px;
+      font-weight: 600;
+      font-family: 'Inter', sans-serif;
+      transition: all .2s;
+      display: inline-flex; align-items: center; gap: 6px;
+      white-space: nowrap;
+    }
+    .btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+    .btn-primary:hover { opacity: .9; transform: translateY(-1px); box-shadow: 0 4px 16px rgba(99,102,241,.4); }
+    .btn-success { background: rgba(16,185,129,.15); color: var(--green); border: 1px solid rgba(16,185,129,.3); }
+    .btn-success:hover { background: rgba(16,185,129,.25); }
+    .btn-danger  { background: rgba(239,68,68,.15);  color: var(--red);   border: 1px solid rgba(239,68,68,.3); }
+    .btn-danger:hover  { background: rgba(239,68,68,.25); }
+    .btn:active { transform: scale(.97); }
+
+    /* ── Response ── */
+    .response-wrap {
+      padding: 0 24px 24px;
+    }
+    .response-header {
+      display: flex; align-items: center; gap: 12px;
+      padding: 12px 0;
+    }
+    .status-tag {
+      font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+    }
+    .s200 { background: rgba(16,185,129,.15); color: var(--green); }
+    .s400, .s404 { background: rgba(239,68,68,.15); color: var(--red); }
+    .s500 { background: rgba(245,158,11,.15); color: var(--yellow); }
+    .elapsed { font-size: 11px; color: var(--muted); }
+    .copy-btn {
+      margin-left: auto;
+      font-size: 11px;
+      padding: 4px 10px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--muted);
+      cursor: pointer;
+      transition: all .2s;
+    }
+    .copy-btn:hover { color: var(--text); border-color: var(--accent); }
+
+    pre {
+      background: #080b12;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      overflow-x: auto;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 12.5px;
+      line-height: 1.7;
+      max-height: 600px;
+      overflow-y: auto;
+    }
+    .spinner {
+      display: inline-block;
+      width: 16px; height: 16px;
+      border: 2px solid var(--border);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin .6s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Result Cards (Analysis) ── */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .score-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+      transition: transform .2s;
+    }
+    .score-card:hover { transform: translateY(-2px); }
+    .score-card .strategy-name { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    .score-card .score-val { font-size: 28px; font-weight: 700; }
+    .score-card .grade-val { font-size: 11px; font-weight: 600; margin-top: 2px; }
+    .grade-S { color: #f59e0b; }
+    .grade-A { color: #10b981; }
+    .grade-B { color: #06b6d4; }
+    .grade-C { color: #f97316; }
+    .grade-D { color: #ef4444; }
+
+    .info-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-bottom: 16px;
+    }
+    .info-item { background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; padding: 10px 14px; }
+    .info-item .k { font-size: 11px; color: var(--muted); margin-bottom: 3px; }
+    .info-item .v { font-size: 14px; font-weight: 600; }
+
+    .section-title { font-size: 13px; font-weight: 600; color: var(--muted); margin: 16px 0 8px; display: flex; align-items: center; gap: 8px; }
+    .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+    .tag { display: inline-block; font-size: 11px; padding: 3px 8px; border-radius: 5px; margin: 3px; }
+    .tag-green { background: rgba(16,185,129,.1); color: var(--green); border: 1px solid rgba(16,185,129,.2); }
+    .tag-red   { background: rgba(239,68,68,.1);  color: var(--red);   border: 1px solid rgba(239,68,68,.2); }
+
+    .regime-badge {
+      display: inline-block; padding: 6px 18px; border-radius: 99px; font-weight: 700; font-size: 16px;
+    }
+    .regime-STRONG_BULL { background: rgba(16,185,129,.2); color: var(--green); border: 1px solid rgba(16,185,129,.4); }
+    .regime-BULL       { background: rgba(6,182,212,.2);  color: var(--cyan);  border: 1px solid rgba(6,182,212,.4); }
+    .regime-SIDEWAYS   { background: rgba(245,158,11,.2); color: var(--yellow); border: 1px solid rgba(245,158,11,.4); }
+    .regime-BEAR       { background: rgba(239,68,68,.2);  color: var(--red);   border: 1px solid rgba(239,68,68,.4); }
+    .regime-CRISIS     { background: rgba(239,68,68,.35); color: #ff6b6b; border: 1px solid rgba(239,68,68,.5); }
+
+    /* ── Error state ── */
+    .error-box {
+      background: rgba(239,68,68,.08);
+      border: 1px solid rgba(239,68,68,.3);
+      border-radius: 8px;
+      padding: 14px 18px;
+      color: var(--red);
+      font-size: 13px;
+    }
+
+    /* ── Universe table ── */
+    table { width: 100%; border-collapse: collapse; }
+    th { font-size: 11px; color: var(--muted); font-weight: 600; text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--border); }
+    td { font-size: 13px; padding: 10px 12px; border-bottom: 1px solid rgba(30,39,64,.6); font-family: 'JetBrains Mono', monospace; }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: rgba(255,255,255,.02); }
+
+    .scrollable { overflow-x: auto; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">⚡ Quant Platform</div>
+  <div class="badge">API Tester v1.0</div>
+  <div class="base-url-wrap">
+    <label>Base URL</label>
+    <input id="baseUrl" value="http://localhost:8090" />
+    <div id="statusDot" title="서버 상태"></div>
+  </div>
+</header>
+
+<div class="container">
+  <nav>
+    <div class="nav-section" style="margin-top:8px">분석 API</div>
+    <div class="nav-item active" onclick="show('analysis')">
+      <span class="method-badge get">GET</span> 종목 분석
+    </div>
+    <div class="nav-item" onclick="show('search')">
+      <span class="method-badge get">GET</span> 종목 검색
+    </div>
+    <div class="nav-item" onclick="show('regime')">
+      <span class="method-badge get">GET</span> 시장 국면
+    </div>
+
+    <div class="nav-section" style="margin-top:20px">Magic Formula 관리</div>
+    <div class="nav-item" onclick="show('mf-universe')">
+      <span class="method-badge get">GET</span> 유니버스 조회
+    </div>
+    <div class="nav-item" onclick="show('mf-add')">
+      <span class="method-badge post">POST</span> 종목 추가
+    </div>
+    <div class="nav-item" onclick="show('mf-remove')">
+      <span class="method-badge del">DEL</span> 종목 제거
+    </div>
+    <div class="nav-item" onclick="show('mf-run')">
+      <span class="method-badge post">POST</span> 배치 실행
+    </div>
+    <div class="nav-item" onclick="show('mf-ranks')">
+      <span class="method-badge get">GET</span> 순위표 조회
+    </div>
+
+    <div class="nav-section" style="margin-top:20px">포트폴리오</div>
+    <div class="nav-item" onclick="show('portfolio')">
+      <span class="method-badge get">GET</span> 보유 종목
+    </div>
+    <div class="nav-item" onclick="show('watchlist')">
+      <span class="method-badge get">GET</span> 관심 종목
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- ── 종목 분석 ── -->
+    <div class="panel active" id="panel-analysis">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>종목 통합 분석</h2>
+        <span class="desc">/api/analysis/{ticker}</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>종목코드</label>
+          <input id="a-ticker" value="005930" placeholder="005930 또는 AAPL" style="width:200px" />
+        </div>
+        <button class="btn btn-primary" onclick="doAnalysis()">▶ 분석 실행</button>
+        <button class="btn btn-success" onclick="setTicker('000660')" style="font-size:12px">SK하이닉스</button>
+        <button class="btn btn-success" onclick="setTicker('035420')" style="font-size:12px">NAVER</button>
+        <button class="btn btn-success" onclick="setTicker('AAPL')"   style="font-size:12px">AAPL</button>
+        <button class="btn btn-success" onclick="setTicker('TSLA')"   style="font-size:12px">TSLA</button>
+      </div>
+      <div class="response-wrap" id="res-analysis"></div>
+    </div>
+
+    <!-- ── 종목 검색 ── -->
+    <div class="panel" id="panel-search">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>종목 검색</h2>
+        <span class="desc">/api/stocks/search?q=</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>검색어 (종목코드 / 영문 티커 / 한글 회사명)</label>
+          <input id="s-query" value="삼성" placeholder="삼성 / AAPL / 005930" style="width:260px" />
+        </div>
+        <button class="btn btn-primary" onclick="doSearch()">🔍 검색</button>
+      </div>
+      <div class="response-wrap" id="res-search"></div>
+    </div>
+
+    <!-- ── 시장 국면 ── -->
+    <div class="panel" id="panel-regime">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>시장 국면 조회</h2>
+        <span class="desc">/api/market/regime</span>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doRegime()">▶ 조회</button>
+      </div>
+      <div class="response-wrap" id="res-regime"></div>
+    </div>
+
+    <!-- ── MF 유니버스 조회 ── -->
+    <div class="panel" id="panel-mf-universe">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>Magic Formula 유니버스</h2>
+        <span class="desc">/api/admin/magic-formula/universe</span>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doMfUniverse()">▶ 조회</button>
+      </div>
+      <div class="response-wrap" id="res-mf-universe"></div>
+    </div>
+
+    <!-- ── MF 종목 추가 ── -->
+    <div class="panel" id="panel-mf-add">
+      <div class="panel-header">
+        <span class="method-badge post" style="font-size:11px">POST</span>
+        <h2>유니버스 종목 추가</h2>
+        <span class="desc">/api/admin/magic-formula/universe</span>
+      </div>
+      <div class="form-row" style="flex-direction:column; align-items:flex-start">
+        <div class="form-group" style="width:100%">
+          <label>요청 Body (JSON)</label>
+          <textarea id="mf-add-body">{"ticker": "005380", "companyName": "현대차"}</textarea>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="doMfAdd()">➕ 추가</button>
+          <button class="btn btn-success" onclick="fillMfAdd('005380','현대차')"   style="font-size:12px">현대차</button>
+          <button class="btn btn-success" onclick="fillMfAdd('035720','카카오')"   style="font-size:12px">카카오</button>
+          <button class="btn btn-success" onclick="fillMfAdd('051910','LG화학')"   style="font-size:12px">LG화학</button>
+          <button class="btn btn-success" onclick="fillMfAdd('068270','셀트리온')" style="font-size:12px">셀트리온</button>
+        </div>
+      </div>
+      <div class="response-wrap" id="res-mf-add"></div>
+    </div>
+
+    <!-- ── MF 종목 제거 ── -->
+    <div class="panel" id="panel-mf-remove">
+      <div class="panel-header">
+        <span class="method-badge del" style="font-size:11px">DEL</span>
+        <h2>유니버스 종목 제거</h2>
+        <span class="desc">/api/admin/magic-formula/universe/{ticker}</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>종목코드</label>
+          <input id="mf-remove-ticker" value="005380" style="width:160px" />
+        </div>
+        <button class="btn btn-danger" onclick="doMfRemove()">🗑 제거</button>
+      </div>
+      <div class="response-wrap" id="res-mf-remove"></div>
+    </div>
+
+    <!-- ── MF 배치 실행 ── -->
+    <div class="panel" id="panel-mf-run">
+      <div class="panel-header">
+        <span class="method-badge post" style="font-size:11px">POST</span>
+        <h2>Magic Formula 배치 수동 실행</h2>
+        <span class="desc">/api/admin/magic-formula/run</span>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doMfRun()">⚡ 배치 실행</button>
+        <span style="font-size:12px; color:var(--muted)">전체 유니버스 ROIC + EarningsYield 순위 재계산</span>
+      </div>
+      <div class="response-wrap" id="res-mf-run"></div>
+    </div>
+
+    <!-- ── MF 순위표 ── -->
+    <div class="panel" id="panel-mf-ranks">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>Magic Formula 순위표</h2>
+        <span class="desc">/api/admin/magic-formula/ranks?date=</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>날짜 (비워두면 오늘)</label>
+          <input id="mf-ranks-date" type="date" style="width:180px" />
+        </div>
+        <button class="btn btn-primary" onclick="doMfRanks()">▶ 조회</button>
+      </div>
+      <div class="response-wrap" id="res-mf-ranks"></div>
+    </div>
+
+    <!-- ── 포트폴리오 ── -->
+    <div class="panel" id="panel-portfolio">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>보유 종목</h2>
+        <span class="desc">/api/portfolio</span>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doPortfolio()">▶ 조회</button>
+      </div>
+      <div class="response-wrap" id="res-portfolio"></div>
+    </div>
+
+    <!-- ── 관심 종목 ── -->
+    <div class="panel" id="panel-watchlist">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>관심 종목</h2>
+        <span class="desc">/api/watchlist</span>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doWatchlist()">▶ 조회</button>
+      </div>
+      <div class="response-wrap" id="res-watchlist"></div>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // ── 유틸 ──────────────────────────────────────────────────
+  const base = () => document.getElementById('baseUrl').value.replace(/\/$/, '');
+
+  function show(key) {
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    document.getElementById('panel-' + key).classList.add('active');
+    event.currentTarget.classList.add('active');
+  }
+
+  function setTicker(t) {
+    document.getElementById('a-ticker').value = t;
+  }
+  function fillMfAdd(ticker, name) {
+    document.getElementById('mf-add-body').value = JSON.stringify({ ticker, companyName: name }, null, 2);
+  }
+
+  // ── 서버 상태 점검 ──────────────────────────────────────
+  async function checkServer() {
+    const dot = document.getElementById('statusDot');
+    try {
+      await fetch(base() + '/api/market/regime', { signal: AbortSignal.timeout(2000) });
+      dot.className = 'online';
+    } catch {
+      dot.className = 'offline';
+    }
+  }
+  checkServer();
+  setInterval(checkServer, 15000);
+
+  // ── API 호출 공통 ─────────────────────────────────────────
+  async function callApi(method, url, body, resId) {
+    const wrap = document.getElementById(resId);
+    wrap.innerHTML = `<div class="response-header"><div class="spinner"></div> <span style="color:var(--muted);font-size:13px">요청 중...</span></div>`;
+    const t0 = Date.now();
+    try {
+      const opt = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) opt.body = typeof body === 'string' ? body : JSON.stringify(body);
+      const res = await fetch(url, opt);
+      const elapsed = Date.now() - t0;
+      const data = await res.json();
+      renderResponse(wrap, res.status, elapsed, data, url, method, data?.data);
+      return data;
+    } catch (e) {
+      wrap.innerHTML = `<div class="error-box">🚫 네트워크 오류: ${e.message}<br>서버가 실행 중인지, Base URL이 맞는지 확인해주세요.</div>`;
+    }
+  }
+
+  function renderResponse(wrap, status, elapsed, raw, url, method, data) {
+    const cls = status >= 500 ? 's500' : status >= 400 ? 's400' : 's200';
+    const formatted = JSON.stringify(raw, null, 2);
+
+    // 특수 렌더링
+    let extra = '';
+    if (method === 'GET' && url.includes('/analysis/')) extra = renderAnalysis(data);
+    else if (method === 'GET' && url.includes('/market/regime')) extra = renderRegime(data);
+    else if (method === 'GET' && url.includes('/stocks/search')) extra = renderSearch(data);
+    else if (method === 'GET' && url.includes('/ranks')) extra = renderRanks(data);
+    else if (method === 'GET' && url.includes('/universe')) extra = renderUniverse(data);
+    else if (method === 'GET' && url.includes('/portfolio')) extra = renderPortfolio(data);
+    else if (method === 'GET' && url.includes('/watchlist')) extra = renderSearch(data);
+
+    wrap.innerHTML = `
+      ${extra}
+      <div class="response-header">
+        <span class="status-tag ${cls}">${status}</span>
+        <span class="elapsed">⏱ ${elapsed}ms</span>
+        <button class="copy-btn" onclick="copyJson(this)">📋 복사</button>
+      </div>
+      <pre id="json-${Date.now()}">${escHtml(formatted)}</pre>
+    `;
+    wrap.querySelector('.copy-btn').dataset.json = formatted;
+  }
+
+  function copyJson(btn) {
+    navigator.clipboard.writeText(btn.dataset.json).then(() => {
+      btn.textContent = '✅ 복사됨';
+      setTimeout(() => btn.textContent = '📋 복사', 1500);
+    });
+  }
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  // ── 특수 렌더러 ───────────────────────────────────────────
+  function renderAnalysis(data) {
+    if (!data || !data.strategies) return '';
+    const { ticker, name, market, sector, marketRegime, strategies, technical, fundamental, flow } = data;
+
+    // 전략 카드
+    const cards = strategies.map(s => `
+      <div class="score-card">
+        <div class="strategy-name">${s.displayName}</div>
+        <div class="score-val grade-${s.grade}" style="">${s.score}</div>
+        <div class="grade-val grade-${s.grade}">${s.grade}등급</div>
+      </div>
+    `).join('');
+
+    // 긍정/부정 포인트 (첫 번째 전략 기준)
+    const allPositives = strategies.flatMap(s => s.positives || []);
+    const allNegatives = strategies.flatMap(s => s.negatives || []);
+    const posHtml = allPositives.slice(0,6).map(p => `<span class="tag tag-green">✓ ${p}</span>`).join('');
+    const negHtml = allNegatives.slice(0,6).map(n => `<span class="tag tag-red">✗ ${n}</span>`).join('');
+
+    // 기술적 지표
+    const tech = technical || {};
+    const fund = fundamental || {};
+    const fl   = flow || {};
+
+    return `
+      <div style="padding:20px 24px">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:16px">
+          <span style="font-size:24px; font-weight:700">${ticker}</span>
+          <span style="font-size:16px; color:var(--muted)">${name}</span>
+          <span class="badge">${market}</span>
+          ${sector ? `<span style="font-size:12px; color:var(--muted)">${sector}</span>` : ''}
+          ${marketRegime ? `<span class="regime-badge regime-${marketRegime}">${marketRegime}</span>` : ''}
+        </div>
+
+        <div class="section-title">📊 7개 전략 점수</div>
+        <div class="cards-grid">${cards}</div>
+
+        ${posHtml || negHtml ? `
+          <div class="section-title">💡 주요 근거</div>
+          <div style="margin-bottom:12px">${posHtml}${negHtml}</div>
+        ` : ''}
+
+        <div class="section-title">📈 기술적 지표</div>
+        <div class="info-grid">
+          ${infoItem('현재가', fmt(tech.currentPrice))}
+          ${infoItem('RSI-14', fmt(tech.rsi14))}
+          ${infoItem('MACD', fmt(tech.macd))}
+          ${infoItem('볼린저 상단', fmt(tech.bollingerUpper))}
+          ${infoItem('볼린저 하단', fmt(tech.bollingerLower))}
+          ${infoItem('EMA-20', fmt(tech.ema20))}
+          ${infoItem('EMA-50', fmt(tech.ema50))}
+          ${infoItem('EMA-200', fmt(tech.ema200))}
+          ${infoItem('52주 고가', fmt(tech.high52w))}
+          ${infoItem('52주 저가', fmt(tech.low52w))}
+          ${infoItem('SMA20 이격률', tech.deviationFromSma20 != null ? tech.deviationFromSma20 + '%' : '—')}
+          ${infoItem('RS Rating', tech.rsRating ?? '—')}
+          ${infoItem('1M 수익률', tech.return1m != null ? tech.return1m + '%' : '—')}
+          ${infoItem('3M 수익률', tech.return3m != null ? tech.return3m + '%' : '—')}
+          ${infoItem('12M 수익률', tech.return12m != null ? tech.return12m + '%' : '—')}
+        </div>
+
+        ${fund.supported ? `
+          <div class="section-title">🏦 재무 지표 (KOR)</div>
+          <div class="info-grid">
+            ${infoItem('PER', fmt(fund.per))}
+            ${infoItem('PBR', fmt(fund.pbr))}
+            ${infoItem('EPS', fmt(fund.eps))}
+            ${infoItem('시가총액(억)', fmt(fund.marketCapBillionKrw))}
+            ${infoItem('ROA', fmt(fund.roa))}
+            ${infoItem('부채비율', fund.debtRatio != null ? fund.debtRatio + '%' : '—')}
+            ${infoItem('유동비율', fmt(fund.currentRatio))}
+            ${infoItem('ROIC', fund.roic != null ? fund.roic + '%' : '—')}
+            ${infoItem('Earnings Yield', fund.earningsYield != null ? fund.earningsYield + '%' : '—')}
+            ${infoItem('매출성장YoY', fund.revenueGrowthYoy != null ? fund.revenueGrowthYoy + '%' : '—')}
+          </div>
+        ` : `<div class="section-title">🏦 재무 지표</div><div class="error-box" style="background:rgba(245,158,11,.05); border-color:rgba(245,158,11,.2); color:var(--yellow)">⚠️ 미국 주식은 재무 데이터를 지원하지 않습니다 (DART KOR 전용)</div>`}
+
+        ${fl.supported ? `
+          <div class="section-title">💸 수급 분석 (KOR)</div>
+          <div class="info-grid">
+            ${infoItem('기관 순매수', fl.institutionalNetBuy?.toLocaleString() + '주' ?? '—')}
+            ${infoItem('외국인 순매수', fl.foreignerNetBuy?.toLocaleString() + '주' ?? '—')}
+            ${infoItem('개인 순매수', fl.retailNetBuy?.toLocaleString() + '주' ?? '—')}
+          </div>
+        ` : `<div class="section-title">💸 수급 분석</div><div class="error-box" style="background:rgba(245,158,11,.05); border-color:rgba(245,158,11,.2); color:var(--yellow)">⚠️ 미국 주식은 수급 데이터를 지원하지 않습니다</div>`}
+
+        <div class="section-title">📝 원본 JSON</div>
+      </div>
+    `;
+  }
+
+  function renderRegime(data) {
+    if (!data) return '';
+    return `
+      <div style="padding:20px 24px">
+        <div class="section-title">현재 시장 국면</div>
+        <div style="margin-bottom:16px">
+          <span class="regime-badge regime-${data}">${data}</span>
+        </div>
+        <div class="section-title">원본 JSON</div>
+      </div>
+    `;
+  }
+
+  function renderSearch(data) {
+    if (!data || !data.length) return `<div style="padding:12px 24px; color:var(--muted); font-size:13px">검색 결과 없음</div>`;
+    const rows = data.map(s => `
+      <tr>
+        <td>${s.ticker || s.stockTicker || s.stock?.ticker || ''}</td>
+        <td>${s.name || s.stockName || s.stock?.name || ''}</td>
+        <td>${s.market || s.marketType || ''}</td>
+        <td>${s.sector || '—'}</td>
+      </tr>
+    `).join('');
+    return `
+      <div style="padding:16px 24px">
+        <div class="scrollable">
+          <table>
+            <thead><tr><th>티커</th><th>종목명</th><th>시장</th><th>섹터</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="section-title" style="margin-top:16px">원본 JSON</div>
+      </div>
+    `;
+  }
+
+  function renderUniverse(data) {
+    if (!data || !data.length) return `<div style="padding:12px 24px; color:var(--muted); font-size:13px">유니버스 비어있음</div>`;
+    const rows = data.map(u => `
+      <tr>
+        <td>${u.ticker}</td>
+        <td>${u.companyName || '—'}</td>
+        <td><span style="color:${u.active ? 'var(--green)' : 'var(--red)'}">${u.active ? '✅ 활성' : '❌ 비활성'}</span></td>
+      </tr>
+    `).join('');
+    return `
+      <div style="padding:16px 24px">
+        <div class="scrollable">
+          <table>
+            <thead><tr><th>티커</th><th>회사명</th><th>상태</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="section-title" style="margin-top:16px">원본 JSON</div>
+      </div>
+    `;
+  }
+
+  function renderRanks(data) {
+    if (!data || !data.length) return `<div style="padding:12px 24px; color:var(--muted); font-size:13px">순위 데이터 없음 (배치 실행 필요)</div>`;
+    const rows = data.map((r, i) => `
+      <tr>
+        <td style="font-weight:700; color:${i < 3 ? 'var(--yellow)' : 'var(--text)'}">${i + 1}</td>
+        <td>${r.ticker}</td>
+        <td>${r.roicRank}</td>
+        <td>${r.earningsYieldRank ?? r.eyRank ?? '—'}</td>
+        <td style="font-weight:600">${r.combinedRank}</td>
+        <td>${r.rankDate || '—'}</td>
+      </tr>
+    `).join('');
+    return `
+      <div style="padding:16px 24px">
+        <div class="scrollable">
+          <table>
+            <thead><tr><th>#</th><th>티커</th><th>ROIC순위</th><th>EY순위</th><th>합산순위</th><th>기준일</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="section-title" style="margin-top:16px">원본 JSON</div>
+      </div>
+    `;
+  }
+
+  function renderPortfolio(data) {
+    if (!data || !data.length) return `<div style="padding:12px 24px; color:var(--muted); font-size:13px">보유 종목 없음</div>`;
+    const rows = data.map(p => `
+      <tr>
+        <td>${p.ticker || p.stockTicker || ''}</td>
+        <td>${p.name || p.stockName || ''}</td>
+        <td>${p.quantity ?? '—'}</td>
+        <td>${p.avgPrice ?? '—'}</td>
+        <td>${p.currentPrice ?? '—'}</td>
+      </tr>
+    `).join('');
+    return `
+      <div style="padding:16px 24px">
+        <div class="scrollable">
+          <table>
+            <thead><tr><th>티커</th><th>종목명</th><th>수량</th><th>평균단가</th><th>현재가</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        <div class="section-title" style="margin-top:16px">원본 JSON</div>
+      </div>
+    `;
+  }
+
+  function infoItem(k, v) {
+    return `<div class="info-item"><div class="k">${k}</div><div class="v">${v ?? '—'}</div></div>`;
+  }
+  function fmt(v) {
+    if (v == null) return '—';
+    const n = parseFloat(v);
+    return isNaN(n) ? v : n.toLocaleString('ko-KR', { maximumFractionDigits: 2 });
+  }
+
+  // ── API 함수들 ────────────────────────────────────────────
+  function doAnalysis() {
+    const ticker = document.getElementById('a-ticker').value.trim();
+    if (!ticker) return alert('종목코드를 입력해주세요.');
+    callApi('GET', `${base()}/api/analysis/${ticker}`, null, 'res-analysis');
+  }
+
+  function doSearch() {
+    const q = document.getElementById('s-query').value.trim();
+    if (!q) return alert('검색어를 입력해주세요.');
+    callApi('GET', `${base()}/api/stocks/search?q=${encodeURIComponent(q)}`, null, 'res-search');
+  }
+
+  function doRegime() {
+    callApi('GET', `${base()}/api/market/regime`, null, 'res-regime');
+  }
+
+  function doMfUniverse() {
+    callApi('GET', `${base()}/api/admin/magic-formula/universe`, null, 'res-mf-universe');
+  }
+
+  function doMfAdd() {
+    const body = document.getElementById('mf-add-body').value;
+    try { JSON.parse(body); } catch { return alert('올바른 JSON 형식이 아닙니다.'); }
+    callApi('POST', `${base()}/api/admin/magic-formula/universe`, body, 'res-mf-add');
+  }
+
+  function doMfRemove() {
+    const ticker = document.getElementById('mf-remove-ticker').value.trim();
+    if (!ticker) return alert('종목코드를 입력해주세요.');
+    callApi('DELETE', `${base()}/api/admin/magic-formula/universe/${ticker}`, null, 'res-mf-remove');
+  }
+
+  function doMfRun() {
+    callApi('POST', `${base()}/api/admin/magic-formula/run`, {}, 'res-mf-run');
+  }
+
+  function doMfRanks() {
+    const date = document.getElementById('mf-ranks-date').value;
+    const url = date
+      ? `${base()}/api/admin/magic-formula/ranks?date=${date}`
+      : `${base()}/api/admin/magic-formula/ranks`;
+    callApi('GET', url, null, 'res-mf-ranks');
+  }
+
+  function doPortfolio() {
+    callApi('GET', `${base()}/api/portfolio`, null, 'res-portfolio');
+  }
+
+  function doWatchlist() {
+    callApi('GET', `${base()}/api/watchlist`, null, 'res-watchlist');
+  }
+
+  // ── 키보드 단축키 ─────────────────────────────────────────
+  document.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
+      const active = document.querySelector('.panel.active');
+      if (!active) return;
+      const id = active.id.replace('panel-', '');
+      const map = {
+        'analysis': doAnalysis, 'search': doSearch, 'regime': doRegime,
+        'mf-universe': doMfUniverse, 'mf-add': doMfAdd, 'mf-remove': doMfRemove,
+        'mf-run': doMfRun, 'mf-ranks': doMfRanks,
+        'portfolio': doPortfolio, 'watchlist': doWatchlist
+      };
+      if (map[id]) map[id]();
+    }
+  });
+</script>
+</body>
+</html>

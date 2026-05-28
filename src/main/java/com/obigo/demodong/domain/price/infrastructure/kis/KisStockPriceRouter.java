@@ -47,6 +47,14 @@ public class KisStockPriceRouter implements StockPricePort {
                 .collect(Collectors.joining(", "));
     }
 
+    @Override
+    public String fetchStockName(Stock stock) {
+        if (stock.getMarketType() == MarketType.KOR) {
+            return korProvider.fetchStockName(stock);
+        }
+        return null; // USA: ticker를 이름으로 유지
+    }
+
     /**
      * 52주 고/저가 조회.
      * KOR: KIS inquire-price output 필드 활용

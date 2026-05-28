@@ -38,6 +38,10 @@ public class Stock extends BaseEntity {
     @Column(length = 8)
     private String dartCorpCode;
 
+    public void updateName(String name) {
+        if (name != null && !name.isBlank()) this.name = name;
+    }
+
     public void updateWatchlist(boolean isWatchlist) {
         this.isWatchlist = isWatchlist;
     }
