@@ -12,6 +12,7 @@ import com.obigo.demodong.domain.stock.domain.entity.Stock;
 import com.obigo.demodong.global.common.response.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
@@ -23,6 +24,7 @@ import java.util.List;
  * <p>엔드포인트:</p>
  * <ul>
  *   <li>GET /api/analysis/{ticker} — 7전략 + 기술/재무/수급 통합 분석</li>
+ *   <li>GET /api/stocks            — 전체 종목 목록</li>
  *   <li>GET /api/stocks/search?q=  — 종목 검색</li>
  *   <li>GET /api/market/regime     — 현재 시장 국면</li>
  * </ul>
@@ -53,6 +55,20 @@ public class AnalysisController {
     }
 
     /**
+     * 전체 종목 목록 조회.
+     * DB에 등록된 모든 종목 반환. 프론트 검색창 초기 데이터 / 자동완성 용도.
+     */
+    @Cacheable(value = "stocks", key = "'all'")
+    @GetMapping("/stocks")
+    public ApiResponse<List<StockSearchResponse>> getAllStocks() {
+        log.info("[API] GET /api/stocks");
+        return ApiResponse.ok(
+                AnalysisResponseCode.STOCK_SEARCH_SUCCESS,
+                stockSearchUseCase.findAll()
+        );
+    }
+
+    /**
      * 종목 검색.
      *
      * @param q 검색어 (종목코드 / 영문 티커 / 한글 회사명)
@@ -70,6 +86,7 @@ public class AnalysisController {
      * 현재 시장 국면 조회.
      * KOSPI 지수 주가 기반 (STRONG_BULL / BULL / SIDEWAYS / BEAR / CRISIS).
      */
+    @Cacheable(value = "marketRegime", key = "'kospi'")
     @GetMapping("/market/regime")
     public ApiResponse<String> getMarketRegime() {
         log.info("[API] GET /api/market/regime");

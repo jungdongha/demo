@@ -1,5 +1,5 @@
 # Quant Platform — 전체 로드맵
-# Last Updated: 2026-05-26
+# Last Updated: 2026-06-02
 
 ## 설계 원칙
 
@@ -55,7 +55,7 @@ Phase 3.5  Backtest Engine                     ← 신규 추가
 Phase 4    재무 분석 + Piotroski               ✅ 완료
 Phase 5    수급 분석 + CAN SLIM               ✅ 완료
 Phase 6    Magic Formula (유니버스 배치)      ✅ 완료 — 7개 전략 전부 완성
-Phase 7    REST API + React 프론트             ← 다음 작업
+Phase 7    REST API + React 프론트             🔄 진행 중 (REST API ✅, 프론트 미착수)
 Phase 7.5  Meta Score + Strategy Explanation UI  ← 신규 추가
 Phase 8    AI 선택적 해석
 Phase 9    비교 + 필터링
@@ -609,7 +609,7 @@ GET    /api/admin/magic-formula/ranks?date=       # 특정일 순위표
 
 ---
 
-## Phase 7 — REST API + React 프론트 (동시 진행)
+## Phase 7 — REST API + React 프론트 (동시 진행) 🔄 진행 중
 
 **목표**: API 완성 + UI 구축을 한 Phase에서 같이 진행
 
@@ -617,18 +617,31 @@ GET    /api/admin/magic-formula/ranks?date=       # 특정일 순위표
 Phase 2~6 동안 결과물이 보이지 않으면 검증이 어렵고 동기부여도 낮아짐.
 API와 프론트를 같이 만들면서 바로 시각적으로 확인.
 
-### Spring Boot API
+### Spring Boot API — ✅ 구현 완료
+
+**구현된 엔드포인트 (commit: 846ffa6):**
 ```
-GET  /api/analysis/{ticker}               # 7전략 + 기술 + 재무 + 수급 통합
-GET  /api/analysis/{ticker}/strategies    # 전략 점수 목록
-GET  /api/analysis/{ticker}/technical     # 기술적 지표
-GET  /api/analysis/{ticker}/fundamental   # 재무 지표
-GET  /api/analysis/{ticker}/flow          # 수급 분석
-POST /api/analysis/{ticker}/ai-report     # AI 해석
-GET  /api/stocks/search?q=keyword
-GET  /api/stocks/compare?tickers=A,B,C
-GET  /api/market/regime
+GET  /api/analysis/{ticker}               ✅ 7전략 + 기술 + 재무 + 수급 통합
+GET  /api/stocks/search?q=keyword         ✅ 종목 검색
+GET  /api/market/regime                   ✅ 시장 국면 반환
 ```
+
+**미구현 (계획):**
+```
+GET  /api/analysis/{ticker}/strategies    # 전략 점수 목록만
+GET  /api/analysis/{ticker}/technical     # 기술적 지표만
+GET  /api/analysis/{ticker}/fundamental   # 재무 지표만
+GET  /api/analysis/{ticker}/flow          # 수급 분석만
+POST /api/analysis/{ticker}/ai-report     # AI 해석 (Phase 8)
+GET  /api/stocks/compare?tickers=A,B,C   # 비교 (Phase 9)
+```
+
+**핵심 컴포넌트:**
+- `AnalysisController` — 프레젠테이션 레이어
+- `AnalysisUseCase` — CompletableFuture 병렬 7전략 오케스트레이션
+- `StockSearchUseCase` — 종목 검색
+- Response DTOs: `AnalysisResponse`, `StrategyScoreResponse`, `TechnicalResponse`, `FundamentalResponse`, `FlowResponse`, `StockSearchResponse`
+- `src/main/resources/static/api-tester.html` — 대화형 테스트 UI
 
 ### 캐싱 전략
 ```

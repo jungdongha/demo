@@ -25,14 +25,17 @@ import com.obigo.demodong.domain.technical.domain.calculator.RsRatingCalculator;
 import com.obigo.demodong.domain.technical.domain.model.TechnicalSnapshot;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalDouble;
 
 /**
  * 종목 통합 분석 유스케이스.
@@ -80,6 +83,7 @@ public class AnalysisUseCase {
      * @param ticker 종목코드 (6자리 KOR / 영문 USA)
      * @return 7전략 + 기술/재무/수급 통합 분석 결과
      */
+    @Cacheable(value = "analysis", key = "#ticker")
     @Transactional
     public AnalysisResponse analyze(String ticker) {
         log.info("[Analysis] 분석 시작 - ticker: {}", ticker);
@@ -115,6 +119,10 @@ public class AnalysisUseCase {
 
         // 6. 수급 분석 (KOR: KIS, USA: stub)
         FlowSnapshot flow = flowDataPort.fetch(stock.getTicker(), stock.getMarketType());
+
+        // 6.5. 거래량 통계 계산 (PriceSnapshot.volume 활용, nullable 안전 처리)
+        BigDecimal volumeChangeRate = calculateVolumeChangeRate(priceSnapshots);
+        Long tradingValue = calculateTradingValue(priceSnapshots);
 
         // 7. 모멘텀 계산
         MomentumSnapshot momentum = buildMomentum(closePrices, stock.getMarketType());
@@ -155,7 +163,7 @@ public class AnalysisUseCase {
                 strategies,
                 technicalResponse,
                 FundamentalResponse.from(fundamental),
-                FlowResponse.from(flow),
+                FlowResponse.from(flow, tradingValue, volumeChangeRate),
                 regime != null ? regime.name() : MarketRegime.SIDEWAYS.name()
         );
     }
@@ -243,6 +251,44 @@ public class AnalysisUseCase {
             log.debug("[Analysis] 시장 국면 판단 실패 — SIDEWAYS 사용: {}", e.getMessage());
             return MarketRegime.SIDEWAYS;
         }
+    }
+
+    /**
+     * 거래량 증가율 계산 — 최근 5일 평균 거래량 / 최근 20일 평균 거래량 - 1 (%)
+     * priceSnapshots는 오래된 순서(오름차순). volume nullable → null 안전 처리.
+     */
+    private BigDecimal calculateVolumeChangeRate(List<PriceSnapshot> snapshots) {
+        int size = snapshots.size();
+        if (size < 20) return null;
+
+        List<PriceSnapshot> recent5  = snapshots.subList(size - 5, size);
+        List<PriceSnapshot> recent20 = snapshots.subList(size - 20, size);
+
+        OptionalDouble avg5  = recent5.stream()
+                .filter(p -> p.getVolume() != null)
+                .mapToLong(PriceSnapshot::getVolume)
+                .average();
+        OptionalDouble avg20 = recent20.stream()
+                .filter(p -> p.getVolume() != null)
+                .mapToLong(PriceSnapshot::getVolume)
+                .average();
+
+        if (avg5.isEmpty() || avg20.isEmpty() || avg20.getAsDouble() == 0) return null;
+
+        double rate = (avg5.getAsDouble() / avg20.getAsDouble() - 1) * 100;
+        return BigDecimal.valueOf(rate).setScale(2, RoundingMode.HALF_UP);
+    }
+
+    /**
+     * 최근 거래대금 계산 — 가장 최근 종가 × 거래량 (원 단위).
+     */
+    private Long calculateTradingValue(List<PriceSnapshot> snapshots) {
+        if (snapshots.isEmpty()) return null;
+        PriceSnapshot latest = snapshots.get(snapshots.size() - 1);
+        if (latest.getVolume() == null) return null;
+        return latest.getClosePrice()
+                .multiply(BigDecimal.valueOf(latest.getVolume()))
+                .longValue();
     }
 
     /**

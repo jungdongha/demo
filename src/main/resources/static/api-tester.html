@@ -320,6 +320,9 @@
     <div class="nav-item" onclick="show('regime')">
       <span class="method-badge get">GET</span> 시장 국면
     </div>
+    <div class="nav-item" onclick="show('stocks')">
+      <span class="method-badge get">GET</span> 전체 종목
+    </div>
 
     <div class="nav-section" style="margin-top:20px">Magic Formula 관리</div>
     <div class="nav-item" onclick="show('mf-universe')">
@@ -342,8 +345,21 @@
     <div class="nav-item" onclick="show('portfolio')">
       <span class="method-badge get">GET</span> 보유 종목
     </div>
+    <div class="nav-item" onclick="show('portfolio-add')">
+      <span class="method-badge post">POST</span> 종목 등록
+    </div>
+    <div class="nav-item" onclick="show('portfolio-delete')">
+      <span class="method-badge del">DEL</span> 종목 삭제
+    </div>
+    <div class="nav-section" style="margin-top:12px">관심 종목</div>
     <div class="nav-item" onclick="show('watchlist')">
       <span class="method-badge get">GET</span> 관심 종목
+    </div>
+    <div class="nav-item" onclick="show('watchlist-add')">
+      <span class="method-badge post">POST</span> 관심 등록
+    </div>
+    <div class="nav-item" onclick="show('watchlist-delete')">
+      <span class="method-badge del">DEL</span> 관심 삭제
     </div>
   </nav>
 
@@ -385,6 +401,20 @@
         <button class="btn btn-primary" onclick="doSearch()">🔍 검색</button>
       </div>
       <div class="response-wrap" id="res-search"></div>
+    </div>
+
+    <!-- ── 전체 종목 목록 ── -->
+    <div class="panel" id="panel-stocks">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>전체 종목 목록</h2>
+        <span class="desc">/api/stocks</span>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doGetAllStocks()">▶ 조회</button>
+        <span style="font-size:12px; color:var(--muted)">DB에 등록된 전체 종목 (캐시 24h)</span>
+      </div>
+      <div class="response-wrap" id="res-stocks"></div>
     </div>
 
     <!-- ── 시장 국면 ── -->
@@ -497,6 +527,45 @@
       <div class="response-wrap" id="res-portfolio"></div>
     </div>
 
+    <!-- ── 포트폴리오 등록 ── -->
+    <div class="panel" id="panel-portfolio-add">
+      <div class="panel-header">
+        <span class="method-badge post" style="font-size:11px">POST</span>
+        <h2>보유 종목 등록</h2>
+        <span class="desc">/api/portfolio</span>
+      </div>
+      <div class="form-row" style="flex-direction:column; align-items:flex-start">
+        <div class="form-group" style="width:100%">
+          <label>요청 Body (JSON)</label>
+          <textarea id="portfolio-add-body">{"ticker": "005930", "quantity": 10, "avgPrice": 71000}</textarea>
+        </div>
+        <div style="display:flex; gap:8px; margin-top:4px; flex-wrap:wrap">
+          <button class="btn btn-primary" onclick="doPortfolioAdd()">➕ 등록</button>
+          <button class="btn btn-success" onclick="fillPortfolioAdd('005930',10,71000)" style="font-size:12px">삼성전자</button>
+          <button class="btn btn-success" onclick="fillPortfolioAdd('000660',5,190000)" style="font-size:12px">SK하이닉스</button>
+          <button class="btn btn-success" onclick="fillPortfolioAdd('035420',3,210000)" style="font-size:12px">NAVER</button>
+        </div>
+      </div>
+      <div class="response-wrap" id="res-portfolio-add"></div>
+    </div>
+
+    <!-- ── 포트폴리오 삭제 ── -->
+    <div class="panel" id="panel-portfolio-delete">
+      <div class="panel-header">
+        <span class="method-badge del" style="font-size:11px">DEL</span>
+        <h2>보유 종목 삭제</h2>
+        <span class="desc">/api/portfolio/{id}</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Portfolio ID (보유 종목 조회에서 확인)</label>
+          <input id="portfolio-delete-id" placeholder="1" style="width:160px" />
+        </div>
+        <button class="btn btn-danger" onclick="doPortfolioDelete()">🗑 삭제</button>
+      </div>
+      <div class="response-wrap" id="res-portfolio-delete"></div>
+    </div>
+
     <!-- ── 관심 종목 ── -->
     <div class="panel" id="panel-watchlist">
       <div class="panel-header">
@@ -508,6 +577,43 @@
         <button class="btn btn-primary" onclick="doWatchlist()">▶ 조회</button>
       </div>
       <div class="response-wrap" id="res-watchlist"></div>
+    </div>
+
+    <!-- ── 관심 종목 등록 ── -->
+    <div class="panel" id="panel-watchlist-add">
+      <div class="panel-header">
+        <span class="method-badge post" style="font-size:11px">POST</span>
+        <h2>관심 종목 등록</h2>
+        <span class="desc">/api/watchlist</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>종목코드</label>
+          <input id="watchlist-add-ticker" value="005930" placeholder="005930" style="width:180px" />
+        </div>
+        <button class="btn btn-primary" onclick="doWatchlistAdd()">➕ 등록</button>
+        <button class="btn btn-success" onclick="document.getElementById('watchlist-add-ticker').value='000660'" style="font-size:12px">SK하이닉스</button>
+        <button class="btn btn-success" onclick="document.getElementById('watchlist-add-ticker').value='035420'" style="font-size:12px">NAVER</button>
+        <button class="btn btn-success" onclick="document.getElementById('watchlist-add-ticker').value='AAPL'" style="font-size:12px">AAPL</button>
+      </div>
+      <div class="response-wrap" id="res-watchlist-add"></div>
+    </div>
+
+    <!-- ── 관심 종목 삭제 ── -->
+    <div class="panel" id="panel-watchlist-delete">
+      <div class="panel-header">
+        <span class="method-badge del" style="font-size:11px">DEL</span>
+        <h2>관심 종목 삭제</h2>
+        <span class="desc">/api/watchlist/{stockId}</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Stock ID (관심 종목 조회에서 id 확인)</label>
+          <input id="watchlist-delete-id" placeholder="1" style="width:160px" />
+        </div>
+        <button class="btn btn-danger" onclick="doWatchlistDelete()">🗑 삭제</button>
+      </div>
+      <div class="response-wrap" id="res-watchlist-delete"></div>
     </div>
 
   </main>
@@ -571,6 +677,7 @@
     if (method === 'GET' && url.includes('/analysis/')) extra = renderAnalysis(data);
     else if (method === 'GET' && url.includes('/market/regime')) extra = renderRegime(data);
     else if (method === 'GET' && url.includes('/stocks/search')) extra = renderSearch(data);
+    else if (method === 'GET' && url.endsWith('/stocks')) extra = renderSearch(data);
     else if (method === 'GET' && url.includes('/ranks')) extra = renderRanks(data);
     else if (method === 'GET' && url.includes('/universe')) extra = renderUniverse(data);
     else if (method === 'GET' && url.includes('/portfolio')) extra = renderPortfolio(data);
@@ -776,20 +883,27 @@
 
   function renderPortfolio(data) {
     if (!data || !data.length) return `<div style="padding:12px 24px; color:var(--muted); font-size:13px">보유 종목 없음</div>`;
-    const rows = data.map(p => `
+    const rows = data.map(p => {
+      const rate = p.profitRate;
+      const rateColor = rate > 0 ? 'var(--green)' : rate < 0 ? 'var(--red)' : 'var(--text)';
+      const rateStr = rate != null ? `<span style="color:${rateColor}">${rate > 0 ? '+' : ''}${rate}%</span>` : '—';
+      return `
       <tr>
-        <td>${p.ticker || p.stockTicker || ''}</td>
-        <td>${p.name || p.stockName || ''}</td>
+        <td style="color:var(--muted);font-size:11px">${p.id ?? ''}</td>
+        <td>${p.ticker || ''}</td>
+        <td>${p.name || ''}</td>
         <td>${p.quantity ?? '—'}</td>
-        <td>${p.avgPrice ?? '—'}</td>
-        <td>${p.currentPrice ?? '—'}</td>
+        <td>${p.avgPrice != null ? Number(p.avgPrice).toLocaleString('ko-KR') : '—'}</td>
+        <td>${p.currentPrice != null ? Number(p.currentPrice).toLocaleString('ko-KR') : '—'}</td>
+        <td>${rateStr}</td>
       </tr>
-    `).join('');
+    `;
+    }).join('');
     return `
       <div style="padding:16px 24px">
         <div class="scrollable">
           <table>
-            <thead><tr><th>티커</th><th>종목명</th><th>수량</th><th>평균단가</th><th>현재가</th></tr></thead>
+            <thead><tr><th>ID</th><th>티커</th><th>종목명</th><th>수량</th><th>평균단가</th><th>현재가</th><th>수익률</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
         </div>
@@ -852,12 +966,43 @@
     callApi('GET', url, null, 'res-mf-ranks');
   }
 
+  function doGetAllStocks() {
+    callApi('GET', `${base()}/api/stocks`, null, 'res-stocks');
+  }
+
   function doPortfolio() {
     callApi('GET', `${base()}/api/portfolio`, null, 'res-portfolio');
   }
 
+  function doPortfolioAdd() {
+    const body = document.getElementById('portfolio-add-body').value;
+    try { JSON.parse(body); } catch { return alert('올바른 JSON 형식이 아닙니다.'); }
+    callApi('POST', `${base()}/api/portfolio`, body, 'res-portfolio-add');
+  }
+  function fillPortfolioAdd(ticker, quantity, avgPrice) {
+    document.getElementById('portfolio-add-body').value = JSON.stringify({ ticker, quantity, avgPrice }, null, 2);
+  }
+
+  function doPortfolioDelete() {
+    const id = document.getElementById('portfolio-delete-id').value.trim();
+    if (!id) return alert('Portfolio ID를 입력해주세요.');
+    callApi('DELETE', `${base()}/api/portfolio/${id}`, null, 'res-portfolio-delete');
+  }
+
   function doWatchlist() {
     callApi('GET', `${base()}/api/watchlist`, null, 'res-watchlist');
+  }
+
+  function doWatchlistAdd() {
+    const ticker = document.getElementById('watchlist-add-ticker').value.trim();
+    if (!ticker) return alert('종목코드를 입력해주세요.');
+    callApi('POST', `${base()}/api/watchlist`, JSON.stringify({ ticker }), 'res-watchlist-add');
+  }
+
+  function doWatchlistDelete() {
+    const id = document.getElementById('watchlist-delete-id').value.trim();
+    if (!id) return alert('Stock ID를 입력해주세요.');
+    callApi('DELETE', `${base()}/api/watchlist/${id}`, null, 'res-watchlist-delete');
   }
 
   // ── 키보드 단축키 ─────────────────────────────────────────
@@ -867,10 +1012,11 @@
       if (!active) return;
       const id = active.id.replace('panel-', '');
       const map = {
-        'analysis': doAnalysis, 'search': doSearch, 'regime': doRegime,
+        'analysis': doAnalysis, 'search': doSearch, 'regime': doRegime, 'stocks': doGetAllStocks,
         'mf-universe': doMfUniverse, 'mf-add': doMfAdd, 'mf-remove': doMfRemove,
         'mf-run': doMfRun, 'mf-ranks': doMfRanks,
-        'portfolio': doPortfolio, 'watchlist': doWatchlist
+        'portfolio': doPortfolio, 'portfolio-add': doPortfolioAdd, 'portfolio-delete': doPortfolioDelete,
+        'watchlist': doWatchlist, 'watchlist-add': doWatchlistAdd, 'watchlist-delete': doWatchlistDelete
       };
       if (map[id]) map[id]();
     }

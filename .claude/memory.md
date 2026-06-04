@@ -1,5 +1,5 @@
 # Quant Platform — Agent Memory
-# Last Updated: 2026-05-27 (Phase 6 완료)
+# Last Updated: 2026-06-02 (Phase 7 REST API 진행 중)
 
 ## 프로젝트 전환 요약
 
@@ -16,7 +16,7 @@
 ## 현재 상태
 
 ```yaml
-phase: Phase 6 완료 → Phase 7 (REST API + React 프론트) 시작
+phase: Phase 7 진행 중 (REST API 완료, React 프론트 미착수)
 branch: feature/phase6
 base_package: com.obigo.demodong
 ```
@@ -142,10 +142,27 @@ MEAN_REVERSION ✅  MINERVINI ✅  DUAL_MOMENTUM ✅  SEASONALITY ✅
 PIOTROSKI ✅  CANSLIM ✅  MAGIC_FORMULA ✅
 ```
 
-### Phase 7 — REST API + React 프론트 (동시) ← 다음 작업
-- Spring Boot API 7개 전략 전부 노출
-- React(Vite) 종목 분석 페이지 UI
-- API + 프론트 같이 진행
+### Phase 7 — REST API + React 프론트 (동시) ← 진행 중
+
+**REST API 완료 (commit: 846ffa6):**
+- `AnalysisController` — 3개 엔드포인트
+  - `GET /api/analysis/{ticker}` → 7전략 + 기술/재무/수급 통합
+  - `GET /api/stocks/search?q=` → 종목 검색
+  - `GET /api/market/regime` → 시장 국면 반환
+- `AnalysisUseCase` — 7전략 병렬 계산 오케스트레이터
+  - Stock 해결(없으면 생성), 200일 가격 로드, 기술/재무/수급 조합
+  - `CompletableFuture` 병렬 Calculator 실행
+- `StockSearchUseCase` — 주식 검색
+- Response DTOs:
+  - `AnalysisResponse` (통합), `StrategyScoreResponse` (점수+근거)
+  - `TechnicalResponse`, `FundamentalResponse`, `FlowResponse`
+  - `StockSearchResponse`
+- `AnalysisResponseCode` — API 응답 코드
+- `src/main/resources/static/api-tester.html` — 대화형 API 테스터 UI (다크 테마)
+
+**미착수:**
+- React(Vite) 프론트엔드 (`/frontend` 디렉토리 없음)
+- 포트폴리오/watchlist API (api-tester.html에 섹션은 있음)
 
 ### Phase 8 — AI 선택적 해석
 - POST 요청 시만 Groq 호출
