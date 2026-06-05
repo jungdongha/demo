@@ -73,7 +73,8 @@ class PiotroskiCalculatorTest {
                     bd(0.45),  // prevAssetTurnover
                     null,
                     1_100_000_000L,  // sharesOutstanding (증가 = 희석)
-                    1_000_000_000L   // prevSharesOutstanding
+                    1_000_000_000L,  // prevSharesOutstanding
+                    null, null, null // roic, earningsYield, operatingProfit (Phase 6)
             );
             StrategyScore score = calculator.calculate(buildInput(f));
 
@@ -131,7 +132,8 @@ class PiotroskiCalculatorTest {
                     bd(0.4),    // prevAssetTurnover
                     null,
                     900_000_000L,  // sharesOutstanding (감소) → F6 1점
-                    1_000_000_000L // prevSharesOutstanding
+                    1_000_000_000L, // prevSharesOutstanding
+                    null, null, null // roic, earningsYield, operatingProfit (Phase 6)
             );
             StrategyScore score = calculator.calculate(buildInput(f));
 
@@ -179,7 +181,8 @@ class PiotroskiCalculatorTest {
                 bd(0.48),             // prevAssetTurnover
                 null,
                 900_000_000L,         // sharesOutstanding (감소 = 미발행)
-                1_000_000_000L        // prevSharesOutstanding
+                1_000_000_000L,       // prevSharesOutstanding
+                null, null, null      // roic, earningsYield, operatingProfit (Phase 6)
         );
     }
 
@@ -202,8 +205,9 @@ class PiotroskiCalculatorTest {
                 bd(0.4),    // prevAssetTurnover
                 null,
                 1_200_000_000L,  // sharesOutstanding (증가 = 희석) → F6 실패
-                1_000_000_000L   // prevSharesOutstanding
+                1_000_000_000L,  // prevSharesOutstanding
                 // F9: CFO/총자산 = -500M/10B = -0.05 > ROA/100 = -0.03 → -0.05 < -0.03 → 실패
+                null, null, null // roic, earningsYield, operatingProfit (Phase 6)
         );
     }
 
