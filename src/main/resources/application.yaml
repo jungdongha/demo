@@ -66,3 +66,7 @@ springdoc:
     tags-sorter: alpha
     operations-sorter: alpha
   packages-to-scan: com.obigo.demodong
+
+telegram:
+  bot-token: ${TELEGRAM_BOT_TOKEN:}
+  chat-id: ${TELEGRAM_CHAT_ID:}
