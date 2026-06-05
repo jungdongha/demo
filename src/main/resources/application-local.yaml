@@ -1,0 +1,87 @@
+# ──────────────────────────────────────────────────────
+# 로컬 개발 프로파일 (spring.profiles.active=local)
+#
+# 사용법:
+#   IntelliJ → Run Configuration → Active profiles: local
+#   CLI:  ./gradlew bootRun --args='--spring.profiles.active=local'
+#
+# DB 선택:
+#   H2 (기본) — Docker 불필요, 앱 재시작 시 데이터 초기화
+#   PostgreSQL  — docker-compose.local.yml 기동 후 h2 섹션 주석처리, postgres 섹션 활성화
+# ──────────────────────────────────────────────────────
+
+spring:
+  # ── H2 인메모리 DB (기본) ──────────────────────────
+  datasource:
+    url: jdbc:h2:mem:quantdb;DB_CLOSE_DELAY=-1;DB_CLOSE_ON_EXIT=FALSE;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+
+  h2:
+    console:
+      enabled: true          # http://localhost:8090/h2-console
+      path: /h2-console
+      settings:
+        web-allow-others: false
+
+  jpa:
+    database-platform: org.hibernate.dialect.H2Dialect
+    hibernate:
+      ddl-auto: create-drop  # 재시작마다 스키마 재생성
+    show-sql: true
+    properties:
+      hibernate:
+        format_sql: true
+
+  # ── 로컬 PostgreSQL (Docker 컨테이너 사용 시) ───────
+  # docker-compose -f docker-compose.local.yml up -d 실행 후 위 h2 섹션 주석처리하고 아래 활성화
+  #
+  # datasource:
+  #   url: jdbc:postgresql://localhost:5433/quantdb_local
+  #   driver-class-name: org.postgresql.Driver
+  #   username: quantdev
+  #   password: quantdev123
+  #
+  # jpa:
+  #   database-platform: org.hibernate.dialect.PostgreSQLDialect
+  #   hibernate:
+  #     ddl-auto: update
+  #   show-sql: true
+
+  # Spring AI — 로컬에서는 stub 처리
+  ai:
+    openai:
+      api-key: stub
+      base-url: https://api.groq.com/openai
+      model: llama-3.1-8b-instant
+      max-tokens: 2048
+
+# ── 로컬 외부 API 키 — .env.local 파일에서 관리 ─────
+# 없으면 빈 값으로 동작 (KIS/DART 호출 시 오류 발생)
+dart:
+  api-key: ${DART_API_KEY:}
+  base-url: https://opendart.fss.or.kr/api
+
+kis:
+  app-key: ${KIS_APP_KEY:}
+  app-secret: ${KIS_APP_SECRET:}
+  base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
+
+naver:
+  api:
+    client-id: ${NAVER_CLIENT_ID:}
+    client-secret: ${NAVER_CLIENT_SECRET:}
+    news-url: https://openapi.naver.com/v1/search/news.json
+
+telegram:
+  bot-token: ${TELEGRAM_BOT_TOKEN:}
+  chat-id: ${TELEGRAM_CHAT_ID:}
+
+logging:
+  level:
+    com.obigo.demodong: DEBUG
+    org.springframework.security: DEBUG
+
+server:
+  port: 8090

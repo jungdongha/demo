@@ -20,4 +20,12 @@ public interface AnalysisHistoryRepository extends JpaRepository<AnalysisHistory
     @Modifying
     @Query("DELETE FROM AnalysisHistory h WHERE h.analyzeDate < :cutoff")
     void deleteByAnalyzeDateBefore(@Param("cutoff") LocalDate cutoff);
+
+    /**
+     * 모든 ticker의 가장 최신 analyze_date 레코드 조회 (랭킹용).
+     * ticker별 최신 1건씩 반환.
+     */
+    @Query("SELECT h FROM AnalysisHistory h WHERE h.analyzeDate = " +
+           "(SELECT MAX(h2.analyzeDate) FROM AnalysisHistory h2 WHERE h2.ticker = h.ticker)")
+    List<AnalysisHistory> findLatestPerTicker();
 }
