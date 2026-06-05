@@ -1,0 +1,192 @@
+# Feature Specification — 텔레그램 알림
+# Status: Draft
+# Last Updated: 2026-06-05
+
+meta:
+  id: FEAT-011
+  title: "텔레그램 알림 — 관심종목 분석 결과 Push"
+  type: Feature
+  phase: Phase 7 (추가)
+  author: Agent
+  status: Draft
+
+# ─────────────────────────────────────────
+# Overview
+# ─────────────────────────────────────────
+overview:
+  summary: >
+    관심종목에 대한 분석 결과(전략 점수 요약)를 매일 지정 시간에
+    텔레그램 봇으로 발송한다. 수동 발송 API도 제공한다.
+
+  user_story: >
+    As a 바쁜 투자자,
+    I want to 매일 아침 텔레그램으로 관심종목 퀀트 점수 요약을 받고,
+    so that 직접 시스템에 접속하지 않아도 주요 변화를 파악한다.
+
+  goals:
+    - 매일 오전 8시 관심종목 전체 분석 → 텔레그램 채널 발송
+    - 수동 발송 API (POST /api/admin/notify/watchlist)
+    - 알림 발송 이력 DB 저장 (재전송 방지 + 감사)
+    - 텔레그램 미설정 시 graceful skip (서버 기동 차단 없음)
+
+# ─────────────────────────────────────────
+# Scope
+# ─────────────────────────────────────────
+scope:
+  in:
+    new_domain: notification
+    new_entities:
+      - NotificationLog     # 발송 이력 (ticker, message, sentAt, status)
+    new_domain_services:
+      - TelegramNotifier    # 텔레그램 HTTP 호출 래퍼
+      - NotificationLogWriter
+    new_usecases:
+      - WatchlistNotifyUseCase  # 관심종목 일괄 분석 + 발송
+    new_controllers:
+      - NotifyController    # POST /api/admin/notify/watchlist
+    new_scheduler:
+      - NotifyScheduler     # 매일 08:00 자동 발송
+    reuse:
+      - PortFolioUseCase.getWatchlist()    # 관심종목 목록
+      - AnalysisUseCase.analyze(ticker)    # 개별 분석 (캐시 경유)
+
+  out: >
+    Slack / 카카오톡 알림 (Phase 9+),
+    사용자별 알림 조건 설정 (특정 전략 점수 임계치 초과 시만),
+    실시간 알림 (WebSocket — Phase 9+)
+
+# ─────────────────────────────────────────
+# Package Structure
+# ─────────────────────────────────────────
+package_structure:
+  layout: |
+    domain/notification/
+      domain/
+        entity/
+          NotificationLog.java         # NEW — id, ticker, message, sentAt, status(SENT/FAILED)
+        repository/
+          NotificationLogRepository.java
+        service/
+          TelegramNotifier.java        # NEW — WebClient로 Telegram Bot API 호출
+          NotificationLogWriter.java   # NEW
+      application/
+        usecase/
+          WatchlistNotifyUseCase.java  # NEW — 관심종목 분석 + 메시지 구성 + 발송
+        scheduler/
+          NotifyScheduler.java         # NEW — @Scheduled(cron = "0 0 8 * * MON-FRI")
+      presentation/
+        NotifyController.java          # NEW — POST /api/admin/notify/watchlist
+      infrastructure/
+        TelegramBotConfig.java         # NEW — bot-token, chat-id 프로퍼티 바인딩
+
+# ─────────────────────────────────────────
+# Telegram Bot Setup
+# ─────────────────────────────────────────
+telegram_setup:
+  properties:
+    telegram:
+      bot-token: ${TELEGRAM_BOT_TOKEN:}
+      chat-id: ${TELEGRAM_CHAT_ID:}
+  note: >
+    두 값이 모두 설정된 경우에만 발송.
+    미설정 시 TelegramNotifier.send()는 no-op + WARN 로그.
+  message_format: |
+    📊 [데모동 퀀트] 관심종목 일일 리포트 (2026-06-05)
+
+    1. 삼성전자 (005930)
+       CAN SLIM: 72 | 미네르비니: 65 | Piotroski: 7
+       💡 종합: 68점
+
+    2. NVDA (NVDA)
+       모멘텀: 81 | 미네르비니: 88 | Reversion: 45
+       💡 종합: 71점
+
+    ─────────────────────
+    ⚠️ 본 정보는 투자 참고용이며 책임은 사용자에게 있습니다.
+
+# ─────────────────────────────────────────
+# API Endpoints
+# ─────────────────────────────────────────
+technical_spec:
+  api:
+    - method: POST
+      path: /api/admin/notify/watchlist
+      summary: 관심종목 분석 결과 즉시 텔레그램 발송
+      auth: 없음 (어드민 전용)
+      request: 없음
+      response:
+        dto: "String"
+        wrapper: "ApiResponse<String>"
+        example: "관심종목 5개 분석 완료. 텔레그램 발송 성공."
+
+  data_flow:
+    - step: 1
+      layer: Presentation
+      action: "NotifyController.sendWatchlistReport() 호출"
+    - step: 2
+      layer: UseCase
+      action: >
+        WatchlistNotifyUseCase:
+        1. PortFolioUseCase.getWatchlist() → 관심종목 ticker 목록
+        2. 각 ticker: AnalysisUseCase.analyze(ticker) (캐시 경유)
+        3. 메시지 문자열 구성 (formatMessage)
+        4. TelegramNotifier.send(message)
+        5. NotificationLogWriter.save(log)
+    - step: 3
+      layer: Infrastructure
+      action: >
+        TelegramNotifier: POST https://api.telegram.org/bot{token}/sendMessage
+        WebClient timeout: 10s
+    - step: 4
+      layer: Domain
+      action: "NotificationLog.create(ticker, message, SENT/FAILED) → save"
+
+  database:
+    entities:
+      - name: NotificationLog
+        action: Create
+        table: notification_log
+        fields: "id, ticker(nullable — 일괄 발송 시 null), message(TEXT), sent_at, status(SENT/FAILED), error_message"
+
+  validation_rules:
+    - "관심종목이 없으면 400 반환 (메시지 없음)"
+    - "텔레그램 미설정 시 200 OK + '텔레그램 미설정 — skip' 메시지"
+    - "발송 실패 시 NotificationLog status=FAILED 저장 후 200 반환 (예외 전파 안 함)"
+
+# ─────────────────────────────────────────
+# Scheduler
+# ─────────────────────────────────────────
+scheduler:
+  class: NotifyScheduler
+  job:
+    cron: "0 0 8 * * MON-FRI"    # 평일 오전 8:00
+    action: WatchlistNotifyUseCase.execute()
+    note: "토/일 제외. 장 시작 전 30분 미리 발송."
+
+# ─────────────────────────────────────────
+# Testing Strategy
+# ─────────────────────────────────────────
+testing_strategy:
+  happy_path:
+    - "관심종목 3개 → 텔레그램 메시지 1건 발송 + NotificationLog 3개 저장"
+    - "WatchlistNotifyUseCase — TelegramNotifier Mock으로 메시지 포맷 검증"
+  edge_cases:
+    - "관심종목 없음 → 빈 리스트 처리, 발송 안 함"
+    - "TELEGRAM_BOT_TOKEN 미설정 → no-op 처리, 예외 없음"
+    - "텔레그램 HTTP 호출 실패 → status=FAILED 저장, 서버 정상 응답"
+  error_cases:
+    - "분석 중 특정 ticker KIS 타임아웃 → 해당 종목 skip + 나머지 발송"
+
+# ─────────────────────────────────────────
+# Implementation Order
+# ─────────────────────────────────────────
+implementation_order:
+  1: "application.yaml에 telegram.bot-token / chat-id 설정 추가"
+  2: "TelegramBotConfig.java (@ConfigurationProperties)"
+  3: "NotificationLog 엔티티 + Repository"
+  4: "TelegramNotifier (WebClient POST + timeout 10s)"
+  5: "NotificationLogWriter (도메인 서비스)"
+  6: "WatchlistNotifyUseCase (메시지 구성 + 발송 + 로그)"
+  7: "NotifyScheduler (@Scheduled)"
+  8: "NotifyController (POST /api/admin/notify/watchlist)"
+  9: "단위 테스트: WatchlistNotifyUseCase (TelegramNotifier Mock)"

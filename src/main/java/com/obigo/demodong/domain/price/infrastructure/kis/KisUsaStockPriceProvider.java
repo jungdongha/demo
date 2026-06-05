@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -45,7 +46,7 @@ public class KisUsaStockPriceProvider {
                         .header("tr_id", TR_ID_CURRENT)
                         .retrieve()
                         .bodyToMono(KisUsaCurrentResponse.class)
-                        .block();
+                        .block(Duration.ofSeconds(10));
 
                 if (response != null && response.output() != null
                         && response.output().last() != null
@@ -89,7 +90,7 @@ public class KisUsaStockPriceProvider {
                         .header("tr_id", TR_ID_DAILY)
                         .retrieve()
                         .bodyToMono(KisUsaDailyResponse.class)
-                        .block();
+                        .block(Duration.ofSeconds(10));
 
                 if (response == null || response.output2() == null || response.output2().isEmpty()) continue;
 

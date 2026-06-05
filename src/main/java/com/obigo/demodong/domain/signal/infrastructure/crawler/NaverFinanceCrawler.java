@@ -8,6 +8,7 @@ import org.jsoup.Jsoup;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
@@ -39,7 +40,7 @@ public class NaverFinanceCrawler implements NewsCrawlerStrategy {
                 .retrieve()
                 .bodyToMono(NaverNewsResponse.class)
                 .defaultIfEmpty(new NaverNewsResponse(List.of()))
-                .block();
+                .block(Duration.ofSeconds(5));
 
         if (response.items().isEmpty()) {
             log.warn("Naver Crawl() 결과 없음 - query: {}", query);

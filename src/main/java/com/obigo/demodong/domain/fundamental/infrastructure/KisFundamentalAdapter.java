@@ -9,6 +9,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 
 /**
  * KIS inquire-price 에서 PER / PBR / EPS / 시가총액을 조회하는 어댑터.
@@ -42,7 +43,7 @@ public class KisFundamentalAdapter {
                     .header("tr_id", kisTokenManager.trId("FHKST01010100", "VHKST01010100"))
                     .retrieve()
                     .bodyToMono(KisInquirePriceResponse.class)
-                    .block();
+                    .block(Duration.ofSeconds(10));
 
             if (response == null || response.output() == null) {
                 log.debug("[KIS-Fundamental] 응답 없음 - ticker: {}", ticker);

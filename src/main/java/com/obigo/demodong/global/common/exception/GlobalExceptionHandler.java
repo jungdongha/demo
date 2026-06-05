@@ -1,6 +1,7 @@
 package com.obigo.demodong.global.common.exception;
 
 import com.obigo.demodong.global.common.response.ApiResponse;
+import jakarta.validation.ConstraintViolationException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -52,5 +53,29 @@ public class GlobalExceptionHandler {
                 .body(body);
     }
 
-    // ... (이하 생략 - 동일한 방식으로 작동함)
+    /**
+     * @Validated + @Pattern 등 PathVariable/RequestParam 검증 실패 처리.
+     * (MethodArgumentNotValidException은 @RequestBody @Valid 실패 처리)
+     */
+    @ExceptionHandler(ConstraintViolationException.class)
+    public ResponseEntity<ApiResponse<List<ErrorResponse>>> handleConstraintViolation(ConstraintViolationException e) {
+        ErrorCode errorCode = GlobalErrorCode.INVALID_ARGUMENT;
+
+        List<ErrorResponse> errors = e.getConstraintViolations()
+                .stream()
+                .map(cv -> {
+                    String field = cv.getPropertyPath().toString();
+                    // "methodName.paramName" 형태에서 마지막 파라미터명만 추출
+                    int dot = field.lastIndexOf('.');
+                    String shortField = dot >= 0 ? field.substring(dot + 1) : field;
+                    return ErrorResponse.of(shortField, cv.getMessage(), cv.getInvalidValue());
+                })
+                .collect(Collectors.toList());
+
+        ApiResponse<List<ErrorResponse>> body = ApiResponse.fail(errorCode, errors);
+
+        return ResponseEntity
+                .status(errorCode.getStatus())
+                .body(body);
+    }
 }

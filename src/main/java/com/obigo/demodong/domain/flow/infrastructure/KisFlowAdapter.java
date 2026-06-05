@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.obigo.demodong.domain.flow.domain.model.FlowSnapshot;
 
+import java.time.Duration;
 import java.util.List;
 import com.obigo.demodong.domain.price.infrastructure.kis.KisTokenManager;
 import lombok.RequiredArgsConstructor;
@@ -45,7 +46,7 @@ public class KisFlowAdapter {
                     .header("tr_id", kisTokenManager.trId("FHKST01010900", "VHKST01010900"))
                     .retrieve()
                     .bodyToMono(KisInvestorResponse.class)
-                    .block();
+                    .block(Duration.ofSeconds(10));
 
             if (response == null || response.output1() == null || response.output1().isEmpty()) {
                 log.debug("[KIS-Flow] 응답 없음 - ticker: {}", ticker);

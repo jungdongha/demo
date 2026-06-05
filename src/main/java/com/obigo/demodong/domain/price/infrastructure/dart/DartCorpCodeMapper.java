@@ -17,6 +17,7 @@ import org.xml.sax.helpers.DefaultHandler;
 
 import javax.xml.parsers.SAXParserFactory;
 import java.io.ByteArrayInputStream;
+import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -127,7 +128,7 @@ public class DartCorpCodeMapper {
                             .build())
                     .retrieve()
                     .bodyToMono(byte[].class)
-                    .block();
+                    .block(Duration.ofSeconds(15));
 
             if (zipBytes == null) {
                 log.warn("[DART] corpCode.xml 다운로드 실패 — 응답 없음");

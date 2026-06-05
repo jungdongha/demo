@@ -1,0 +1,212 @@
+# Feature Specification — 분석 히스토리 저장
+# Status: Draft
+# Last Updated: 2026-06-05
+
+meta:
+  id: FEAT-014
+  title: "분석 히스토리 저장 — 전략 점수 변화 추적"
+  type: Feature
+  phase: Phase 7 (추가)
+  author: Agent
+  status: Draft
+
+# ─────────────────────────────────────────
+# Overview
+# ─────────────────────────────────────────
+overview:
+  summary: >
+    분석 요청 시 전략 점수를 DB에 스냅샷으로 저장하고,
+    특정 종목의 점수 변화 히스토리를 조회할 수 있다.
+    점수 추세(상승/하락)를 통해 매수/매도 타이밍 참고 정보를 제공한다.
+
+  user_story: >
+    As a 장기 투자자,
+    I want to 삼성전자의 퀀트 점수가 최근 30일간 어떻게 변했는지 확인하고,
+    so that 점수 추세를 보며 보유/매도 결정의 근거로 삼는다.
+
+  goals:
+    - 분석 API 호출 시 결과를 AnalysisHistory 엔티티에 자동 저장
+    - GET /api/analysis/{ticker}/history 로 과거 분석 이력 조회
+    - 최대 90일 보관 (오래된 데이터 자동 삭제 스케줄러)
+    - 당일 중복 저장 방지 (동일 날짜 + ticker 이미 존재하면 업데이트)
+
+# ─────────────────────────────────────────
+# Scope
+# ─────────────────────────────────────────
+scope:
+  in:
+    domain: analysis
+    new_entities:
+      - AnalysisHistory    # ticker, analyzedAt, scores(JSON), totalScore
+    new_repositories:
+      - AnalysisHistoryRepository
+    new_domain_services:
+      - AnalysisHistoryWriter   # 저장 로직 (upsert)
+    new_usecases:
+      - AnalysisHistoryUseCase  # 히스토리 조회
+    new_dtos:
+      - AnalysisHistoryResponse
+    new_scheduler:
+      - HistoryCleanupScheduler  # 90일 초과 데이터 삭제 (매일 새벽 2시)
+    modify:
+      - AnalysisUseCase.analyze()  # 분석 후 AnalysisHistoryWriter.save() 호출 추가
+      - AnalysisController         # GET /api/analysis/{ticker}/history 엔드포인트 추가
+
+  out: >
+    분석 히스토리 시각화 차트 (프론트에서 처리),
+    전략별 점수 추이 통계 (Phase 9+),
+    알림 임계치 초과 감지 (FEAT-011 연동)
+
+# ─────────────────────────────────────────
+# Package Structure
+# ─────────────────────────────────────────
+package_structure:
+  layout: |
+    domain/analysis/
+      domain/
+        entity/
+          AnalysisHistory.java          # NEW
+        repository/
+          AnalysisHistoryRepository.java # NEW
+        service/
+          AnalysisHistoryWriter.java     # NEW — upsert 로직
+      application/
+        usecase/
+          AnalysisHistoryUseCase.java    # NEW — 히스토리 조회
+        scheduler/
+          HistoryCleanupScheduler.java   # NEW — 90일 초과 삭제
+        dto/
+          response/
+            AnalysisHistoryResponse.java # NEW
+
+    (기존 AnalysisController에 엔드포인트 추가)
+    (기존 AnalysisUseCase.analyze()에 히스토리 저장 hook 추가)
+
+# ─────────────────────────────────────────
+# Entity Design
+# ─────────────────────────────────────────
+entity:
+  AnalysisHistory:
+    table: analysis_history
+    fields:
+      - id: Long (PK)
+      - ticker: String (NOT NULL)
+      - analyze_date: LocalDate (NOT NULL)   # 분석 날짜 (당일 중복 방지 키)
+      - total_score: Integer
+      - canslim_score: Integer
+      - momentum_score: Integer
+      - seasonality_score: Integer
+      - minervini_score: Integer
+      - magic_formula_score: Integer
+      - piotroski_score: Integer
+      - mean_reversion_score: Integer
+      - created_at: LocalDateTime
+      - updated_at: LocalDateTime
+    constraints:
+      - UNIQUE(ticker, analyze_date)   # 당일 중복 방지
+
+# ─────────────────────────────────────────
+# API Endpoints
+# ─────────────────────────────────────────
+technical_spec:
+  api:
+    - method: GET
+      path: /api/analysis/{ticker}/history
+      summary: 특정 종목 분석 점수 히스토리 조회
+      auth: 없음
+      request:
+        path_param:
+          - name: ticker
+            type: String
+            validation: "^[A-Za-z0-9.\\-]{1,20}$"
+        query_params:
+          - name: days
+            type: Integer
+            required: false
+            default: 30
+            description: "조회 기간 (일), 최대 90"
+      response:
+        dto: "List<AnalysisHistoryResponse>"
+        wrapper: "ApiResponse<List<AnalysisHistoryResponse>>"
+        fields:
+          - analyzeDate (LocalDate)
+          - totalScore (Integer)
+          - scores (Map<StrategyType, Integer>)
+        sort: "analyzeDate 오름차순 (차트 렌더링용)"
+
+  data_flow:
+    분석_요청_시_저장:
+      - step: 1
+        layer: UseCase
+        action: "AnalysisUseCase.analyze(ticker) — 기존 로직"
+      - step: 2
+        layer: UseCase (추가)
+        action: "AnalysisHistoryWriter.upsert(ticker, result) — 분석 후 비동기 저장"
+        note: "@Async 적용 고려 — 저장 실패가 API 응답을 차단하면 안 됨"
+      - step: 3
+        layer: Infrastructure
+        action: "AnalysisHistoryRepository.save() — upsert (ticker + analyze_date 충돌 시 UPDATE)"
+
+    히스토리_조회:
+      - step: 1
+        layer: Presentation
+        action: "AnalysisController.getHistory(ticker, days)"
+      - step: 2
+        layer: UseCase
+        action: "AnalysisHistoryUseCase.getHistory(ticker, days)"
+      - step: 3
+        layer: Domain
+        action: "AnalysisHistoryRepository.findByTickerAndAnalyzeDateAfterOrderByAnalyzeDateAsc(...)"
+      - step: 4
+        layer: Response
+        action: "AnalysisHistoryResponse 리스트 반환"
+
+  database:
+    entities:
+      - name: AnalysisHistory
+        action: Create / Update (upsert)
+        table: analysis_history
+        note: "ON CONFLICT(ticker, analyze_date) DO UPDATE"
+
+  validation_rules:
+    - "days 파라미터: 1~90 범위 (범위 초과 시 400)"
+    - "저장 실패 시 로그만 남기고 분석 API 응답은 정상 반환 (비동기 분리 권장)"
+    - "히스토리 없는 ticker 조회 → 빈 리스트 + 200 OK"
+
+# ─────────────────────────────────────────
+# Cleanup Scheduler
+# ─────────────────────────────────────────
+scheduler:
+  class: HistoryCleanupScheduler
+  job:
+    cron: "0 0 2 * * *"    # 매일 새벽 2시
+    action: "AnalysisHistoryRepository.deleteByAnalyzeDateBefore(LocalDate.now().minusDays(90))"
+
+# ─────────────────────────────────────────
+# Testing Strategy
+# ─────────────────────────────────────────
+testing_strategy:
+  happy_path:
+    - "analyze(ticker) 호출 후 AnalysisHistory DB에 오늘 날짜로 저장된다"
+    - "같은 날 두 번 분석 → 동일 analyze_date 레코드 업데이트 (중복 없음)"
+    - "GET /api/analysis/005930/history?days=30 → 30일치 이력 오름차순 반환"
+  edge_cases:
+    - "히스토리 없는 ticker → 빈 리스트 반환"
+    - "저장 실패 시 분석 API는 정상 200 응답"
+    - "days=90 → 90일치 반환, days=91 → 400 반환"
+  error_cases:
+    - "ticker 패턴 불일치 → 400 INVALID_ARGUMENT"
+
+# ─────────────────────────────────────────
+# Implementation Order
+# ─────────────────────────────────────────
+implementation_order:
+  1: "AnalysisHistory 엔티티 (UNIQUE 제약 포함)"
+  2: "AnalysisHistoryRepository (findBy + deleteBy 메서드)"
+  3: "AnalysisHistoryWriter (upsert 로직)"
+  4: "AnalysisUseCase에 히스토리 저장 hook 추가 (@Async 적용)"
+  5: "AnalysisHistoryUseCase (조회 Facade)"
+  6: "AnalysisHistoryResponse record"
+  7: "HistoryCleanupScheduler"
+  8: "AnalysisController에 GET /api/analysis/{ticker}/history 추가"
+  9: "단위 테스트: AnalysisHistoryWriter upsert 동작 검증"

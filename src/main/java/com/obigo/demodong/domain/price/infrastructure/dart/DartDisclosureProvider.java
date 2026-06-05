@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
@@ -39,7 +40,7 @@ public class DartDisclosureProvider implements CorporateDisclosurePort {
                             .build())
                     .retrieve()
                     .bodyToMono(DartListResponse.class)
-                    .block();
+                    .block(Duration.ofSeconds(15));
 
             if (response == null || !"000".equals(response.status()) || response.list() == null) {
                 log.warn("[DART] 공시 조회 실패 - corpCode: {}, status: {}",

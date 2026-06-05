@@ -8,6 +8,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -39,7 +40,7 @@ public class KisTokenManager {
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(Map.class)
-                    .block();
+                    .block(Duration.ofSeconds(10));
 
             if (response != null && response.containsKey("access_token")) {
                 accessToken.set((String) response.get("access_token"));
