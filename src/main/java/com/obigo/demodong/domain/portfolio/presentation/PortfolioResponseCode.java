@@ -14,7 +14,9 @@ public enum PortfolioResponseCode implements ResponseCode {
     PORTFOLIO_LIST_SUCCESS(200, HttpStatus.OK, "보유 종목 목록을 조회했습니다."),
     WATCHLIST_REGISTER_SUCCESS(201, HttpStatus.CREATED, "관심 종목이 등록되었습니다."),
     WATCHLIST_DELETE_SUCCESS(200, HttpStatus.OK, "관심 종목이 삭제되었습니다."),
-    WATCHLIST_LIST_SUCCESS(200, HttpStatus.OK, "관심 종목 목록을 조회했습니다.");
+    WATCHLIST_LIST_SUCCESS(200, HttpStatus.OK, "관심 종목 목록을 조회했습니다."),
+    PORTFOLIO_SUMMARY_SUCCESS(200, HttpStatus.OK, "포트폴리오 요약을 조회했습니다."),
+    WATCHLIST_SCORES_SUCCESS(200, HttpStatus.OK, "관심종목 점수 목록을 조회했습니다.");
 
     private final int code;
     private final HttpStatus httpStatus;
