@@ -200,8 +200,30 @@ Agent가 직접 `./gradlew test` 또는 `./gradlew bootRun` 실행 금지.
 2. ./gradlew test 실행
 ```
 
-터널 스크립트: `scripts/tunnel.sh`
-env 필요: EC2_HOST, EC2_USER, PEM_KEY (또는 기본값 사용)
+### SSH 터널 스크립트 (`scripts/tunnel.sh`)
+
+**연결 구조:** `localhost:5432 → EC2(SSH) → RDS:5432`
+
+**환경변수 (기본값 포함):**
+```bash
+EC2_HOST  = 13.125.227.244                               # 환경변수 미설정 시 기본값
+EC2_USER  = ubuntu
+PEM_KEY   = $HOME/Downloads/demo-dong-keyPair.pem
+```
+
+**RDS 엔드포인트:**
+```
+demodongdb.cxk24yia8paw.ap-northeast-2.rds.amazonaws.com:5432
+```
+
+**주요 동작:**
+- PEM 키 파일 존재 여부 자동 검증 (없으면 exit 1)
+- `chmod 400` 자동 적용
+- 터널 끊김 시 5초 후 자동 재연결 루프 (`while true`)
+- `Ctrl+C` 로 정상 종료 (trap INT TERM)
+- SSH 옵션: `ServerAliveInterval=30`, `ConnectTimeout=10`, `ExitOnForwardFailure=yes`
+
+**터널 실행 후:** `.env` 에서 `DB_HOST=localhost` 로 변경하여 Spring 실행
 
 ---
 

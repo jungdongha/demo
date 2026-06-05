@@ -183,7 +183,8 @@ class CANSLIMCalculatorTest {
                 bd(-5.0), null,   // roa 음수
                 null, null, null, null, null, null, null, null, null, null,
                 bd(-10.0),        // revenueGrowthYoy 음수
-                null, null
+                null, null,
+                null, null, null  // roic, earningsYield, operatingProfit (Phase 6)
         );
         // currentPrice = 50, high52w = 100 → ratio = 0.50 → 0점
         TechnicalSnapshot tech = buildTechnicalWithPrices(bd(50.0), bd(100.0));
@@ -206,7 +207,8 @@ class CANSLIMCalculatorTest {
                 bd(20.0),
                 null, null, null, null, null, null, null, null, null, null,
                 bd(30.0),   // revenueGrowthYoy ≥ 25% → C 100점
-                null, null
+                null, null,
+                null, null, null  // roic, earningsYield, operatingProfit (Phase 6)
         );
     }
 
