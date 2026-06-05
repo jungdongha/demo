@@ -1,7 +1,9 @@
 package com.obigo.demodong.domain.analysis.presentation;
 
+import com.obigo.demodong.domain.analysis.application.dto.response.AnalysisHistoryResponse;
 import com.obigo.demodong.domain.analysis.application.dto.response.AnalysisResponse;
 import com.obigo.demodong.domain.analysis.application.dto.response.StockSearchResponse;
+import com.obigo.demodong.domain.analysis.application.usecase.AnalysisHistoryUseCase;
 import com.obigo.demodong.domain.analysis.application.usecase.AnalysisUseCase;
 import com.obigo.demodong.domain.analysis.application.usecase.StockSearchUseCase;
 import com.obigo.demodong.domain.analysis.domain.enums.MarketRegime;
@@ -43,6 +45,7 @@ import java.util.List;
 public class AnalysisController {
 
     private final AnalysisUseCase analysisUseCase;
+    private final AnalysisHistoryUseCase analysisHistoryUseCase;
     private final StockSearchUseCase stockSearchUseCase;
     private final MarketRegimeService marketRegimeService;
     private final StockPricePort stockPricePort;
@@ -93,6 +96,24 @@ public class AnalysisController {
         return ApiResponse.ok(
                 AnalysisResponseCode.STOCK_SEARCH_SUCCESS,
                 stockSearchUseCase.search(q)
+        );
+    }
+
+    /**
+     * 종목 분석 히스토리 조회.
+     *
+     * @param ticker 종목코드
+     * @param days   조회 기간 (기본 30일, 최대 90일)
+     */
+    @GetMapping("/analysis/{ticker}/history")
+    public ApiResponse<List<AnalysisHistoryResponse>> getHistory(
+            @PathVariable String ticker,
+            @RequestParam(defaultValue = "30") int days) {
+        log.info("[API] GET /api/analysis/{}/history?days={}", ticker, days);
+        int safeDays = Math.min(Math.max(days, 1), 90);
+        return ApiResponse.ok(
+                AnalysisResponseCode.HISTORY_SUCCESS,
+                analysisHistoryUseCase.getHistory(ticker, safeDays)
         );
     }
 
