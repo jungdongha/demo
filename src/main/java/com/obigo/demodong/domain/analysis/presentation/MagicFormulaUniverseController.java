@@ -7,6 +7,8 @@ import com.obigo.demodong.domain.analysis.domain.repository.MagicFormulaUniverse
 import com.obigo.demodong.domain.analysis.domain.service.MagicFormulaBatchService;
 import com.obigo.demodong.global.common.response.ApiResponse;
 import com.obigo.demodong.global.common.response.GlobalResponseCode;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDate;
 import java.util.List;
 
+@Tag(name = "Magic Formula 관리", description = "유니버스 종목 관리 및 배치 실행 (어드민)")
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/admin/magic-formula")

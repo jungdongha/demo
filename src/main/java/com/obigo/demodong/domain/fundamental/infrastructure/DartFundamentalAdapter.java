@@ -13,6 +13,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.math.BigDecimal;
 import java.math.MathContext;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.util.Collections;
 import java.util.List;
@@ -80,7 +81,7 @@ public class DartFundamentalAdapter {
                             .build())
                     .retrieve()
                     .bodyToMono(DartFinancialResponse.class)
-                    .block();
+                    .block(Duration.ofSeconds(15));
 
             if (response == null || !"000".equals(response.status()) || response.list() == null) {
                 log.debug("[DART-Fundamental] {} 조회 실패 - corpCode: {}, status: {}",

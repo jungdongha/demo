@@ -1,5 +1,6 @@
 package com.obigo.demodong.global.common.infrastructure.dart;
 
+import io.netty.channel.ChannelOption;
 import io.netty.handler.ssl.IdentityCipherSuiteFilter;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.ssl.SslProvider;
@@ -11,6 +12,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 import reactor.netty.http.client.HttpClient;
 
 import javax.net.ssl.SSLException;
+import java.time.Duration;
 
 @Configuration
 @EnableConfigurationProperties(DartProperties.class)
@@ -29,6 +31,8 @@ public class DartConfig {
                 .build();
 
         var httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 5_000)   // TCP 연결 타임아웃 5초
+                .responseTimeout(Duration.ofSeconds(15))               // DART는 느린 서버 → 15초
                 .secure(t -> t.sslContext(sslContext));
 
         return WebClient.builder()

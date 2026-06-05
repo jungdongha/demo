@@ -1,0 +1,144 @@
+# Feature Specification — 관심종목 일괄 점수 조회
+# Status: Draft
+# Last Updated: 2026-06-05
+
+meta:
+  id: FEAT-013
+  title: "관심종목 일괄 점수 — 전략 점수 + 현재가 일괄 반환"
+  type: Feature
+  phase: Phase 7 (추가)
+  author: Agent
+  status: Draft
+
+# ─────────────────────────────────────────
+# Overview
+# ─────────────────────────────────────────
+overview:
+  summary: >
+    관심종목 전체에 대해 7개 전략 점수와 현재가를 한 번의 API 호출로
+    반환한다. 프론트 대시보드의 관심종목 목록 화면에서 활용한다.
+
+  user_story: >
+    As a 관심종목 추적 투자자,
+    I want to 관심종목 목록 화면에서 각 종목의 전략 점수와 현재가를 한눈에 보고,
+    so that 종목 선별 시 빠르게 비교 판단할 수 있다.
+
+  goals:
+    - 관심종목 전체에 대해 분석 + 현재가 일괄 조회
+    - 종합 점수(전략 점수 평균) 기준 내림차순 정렬
+    - 캐시 활용으로 빠른 응답 (캐시 히트 시 <100ms 목표)
+    - 기존 GET /api/watchlist 와 별도 엔드포인트로 제공
+
+# ─────────────────────────────────────────
+# Scope
+# ─────────────────────────────────────────
+scope:
+  in:
+    domain: portfolio (watchlist 확장)
+    new_domain_services: []        # 신규 도메인 서비스 불필요
+    new_usecases:
+      - WatchlistScoreUseCase      # 관심종목 일괄 분석 Facade
+    new_dtos:
+      - WatchlistScoreResponse     # ticker + currentPrice + scores + totalScore
+    reuse:
+      - PortFolioUseCase.getWatchlist()   # 관심종목 목록
+      - AnalysisUseCase.analyze(ticker)   # 분석 (캐시)
+      - StockPricePort.fetchCurrentPrice  # 현재가
+
+  out: >
+    관심종목 알림 임계치 조건 설정 (FEAT-011 텔레그램 알림과 연동),
+    관심종목 그룹핑/태그 (Phase 9+)
+
+# ─────────────────────────────────────────
+# Package Structure
+# ─────────────────────────────────────────
+package_structure:
+  layout: |
+    domain/portfolio/
+      application/
+        usecase/
+          WatchlistScoreUseCase.java    # NEW
+        dto/
+          response/
+            WatchlistScoreResponse.java # NEW
+
+    (기존 PortfolioController에 엔드포인트 추가)
+
+# ─────────────────────────────────────────
+# API Endpoints
+# ─────────────────────────────────────────
+technical_spec:
+  api:
+    - method: GET
+      path: /api/watchlist/scores
+      summary: 관심종목 전체 전략 점수 + 현재가 일괄 조회
+      auth: 없음
+      request: 없음
+      response:
+        dto: "List<WatchlistScoreResponse>"
+        wrapper: "ApiResponse<List<WatchlistScoreResponse>>"
+        fields:
+          - ticker
+          - companyName
+          - currentPrice (BigDecimal, nullable — 조회 실패 시)
+          - priceChange (오늘 등락률 %, nullable)
+          - scores (Map<StrategyType, Integer>)
+          - totalScore (Integer — 7개 전략 평균, nullable)
+          - analysisUpdatedAt (LocalDateTime)
+        sort: "totalScore 내림차순 (null은 맨 뒤)"
+
+  data_flow:
+    - step: 1
+      layer: Presentation
+      action: "PortfolioController.getWatchlistScores() → WatchlistScoreUseCase.getScores()"
+    - step: 2
+      layer: UseCase
+      action: >
+        WatchlistScoreUseCase:
+        1. PortFolioUseCase.getWatchlist() — 관심종목 ticker 목록
+        2. 각 ticker: CompletableFuture로 병렬 처리
+           - StockPricePort.fetchCurrentPrice(ticker) — 현재가
+           - AnalysisUseCase.analyze(ticker) — 전략 점수 (캐시)
+        3. 결과 합산 → totalScore 계산
+        4. totalScore 내림차순 정렬
+    - step: 3
+      layer: Infrastructure
+      action: "KIS API (현재가) + 캐시 (분석 결과) — 병렬"
+    - step: 4
+      layer: Response
+      action: "WatchlistScoreResponse 리스트 반환"
+
+  database:
+    entities:
+      - name: PortfolioDetail (Watchlist)
+        action: Read
+        fields: "ticker (active 관심종목)"
+    note: "조회 전용 — 저장 없음"
+
+  validation_rules:
+    - "관심종목 없으면 빈 리스트 + 200 OK"
+    - "현재가 조회 실패: currentPrice=null, priceChange=null (전체 실패 안 함)"
+    - "분석 캐시 미스: AnalysisUseCase 호출 후 캐시 저장 (최초 1회 지연 허용)"
+
+# ─────────────────────────────────────────
+# Testing Strategy
+# ─────────────────────────────────────────
+testing_strategy:
+  happy_path:
+    - "관심종목 5개 → 5개 WatchlistScoreResponse 반환, totalScore 내림차순 정렬"
+    - "캐시 히트 시 KIS API 호출 없이 빠른 응답"
+  edge_cases:
+    - "관심종목 없음 → 빈 리스트 반환"
+    - "일부 종목 현재가 조회 실패 → 해당 종목 currentPrice=null, 나머지 정상"
+    - "totalScore null인 종목은 목록 맨 뒤로 정렬"
+  error_cases:
+    - "모든 현재가 조회 실패 → 전략 점수만 있는 결과 반환"
+
+# ─────────────────────────────────────────
+# Implementation Order
+# ─────────────────────────────────────────
+implementation_order:
+  1: "WatchlistScoreResponse record"
+  2: "WatchlistScoreUseCase (병렬 조회 + 집계 + 정렬)"
+  3: "PortfolioController에 GET /api/watchlist/scores 엔드포인트 추가"
+  4: "단위 테스트: WatchlistScoreUseCase (Mock AnalysisUseCase + StockPricePort)"

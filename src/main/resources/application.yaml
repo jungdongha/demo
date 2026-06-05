@@ -56,3 +56,13 @@ kis:
   base-url: ${KIS_BASE_URL:https://openapi.koreainvestment.com:9443}
 
 # alpha-vantage: Phase 10 이후 미국 주식 재무 데이터 연동 시 추가
+
+# Swagger / OpenAPI 문서 설정
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  packages-to-scan: com.obigo.demodong

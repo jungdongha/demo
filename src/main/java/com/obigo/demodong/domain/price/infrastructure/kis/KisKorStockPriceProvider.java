@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -40,7 +41,7 @@ public class KisKorStockPriceProvider {
                     .header("tr_id", kisTokenManager.trId("FHKST01010100", "VHKST01010100"))
                     .retrieve()
                     .bodyToMono(KisCurrentPriceResponse.class)
-                    .block();
+                    .block(Duration.ofSeconds(10));
 
             if (response == null || response.output() == null) {
                 log.warn("[KIS-KOR] 현재가 응답 없음 - ticker: {}, rt_cd: {}, msg: {}",
@@ -68,7 +69,7 @@ public class KisKorStockPriceProvider {
                     .header("tr_id", kisTokenManager.trId("FHKST01010100", "VHKST01010100"))
                     .retrieve()
                     .bodyToMono(KisCurrentPriceResponse.class)
-                    .block();
+                    .block(Duration.ofSeconds(10));
             if (response == null || response.output() == null) return null;
             return response.output().htsKorIsnm();
         } catch (Exception e) {
@@ -94,7 +95,7 @@ public class KisKorStockPriceProvider {
                     .header("tr_id", kisTokenManager.trId("FHKST01010100", "VHKST01010100"))
                     .retrieve()
                     .bodyToMono(Kis52WeekResponse.class)
-                    .block();
+                    .block(Duration.ofSeconds(10));
 
             if (response == null || response.output() == null) {
                 log.warn("[KIS-KOR] 52주 응답 없음 - ticker: {}, rt_cd: {}, msg: {}",
@@ -173,7 +174,7 @@ public class KisKorStockPriceProvider {
                     .header("tr_id", kisTokenManager.trId("FHKST01010400", "VHKST01010400"))
                     .retrieve()
                     .bodyToMono(KisDailyPriceResponse.class)
-                    .block();
+                    .block(Duration.ofSeconds(10));
 
             if (response == null || response.output() == null) return;
 

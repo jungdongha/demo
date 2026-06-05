@@ -1,0 +1,161 @@
+# Feature Specification — 포트폴리오 요약 API
+# Status: Draft
+# Last Updated: 2026-06-05
+
+meta:
+  id: FEAT-012
+  title: "포트폴리오 요약 API — 수익률 + 전략 점수 집계"
+  type: Feature
+  phase: Phase 7 (추가)
+  author: Agent
+  status: Draft
+
+# ─────────────────────────────────────────
+# Overview
+# ─────────────────────────────────────────
+overview:
+  summary: >
+    보유 종목 전체의 현재가 기반 수익률, 퀀트 점수 평균,
+    총 평가금액을 한 번에 반환하는 포트폴리오 대시보드 API.
+
+  user_story: >
+    As a 포트폴리오 관리자,
+    I want to 보유 종목의 총 수익률과 전략 점수 요약을 한 번에 확인하고,
+    so that 포트폴리오 전체 현황을 빠르게 파악한다.
+
+  goals:
+    - 보유 종목별 현재가 조회 → 수익률 계산
+    - 전략 점수 평균 집계 (보유 종목 전체)
+    - 총 평가금액, 총 투자금액, 전체 수익률 반환
+    - 종목별 상세 행도 함께 반환 (개별 수익률 + 점수)
+
+# ─────────────────────────────────────────
+# Scope
+# ─────────────────────────────────────────
+scope:
+  in:
+    domain: portfolio
+    new_domain_services:
+      - PortfolioSummaryService    # 수익률 계산 + 점수 집계
+    new_usecases:
+      - PortfolioSummaryUseCase    # Facade
+    new_dtos:
+      - PortfolioSummaryResponse   # 전체 요약 + 종목별 상세
+      - PortfolioItemDetail        # 개별 종목 수익률 + 점수
+    reuse:
+      - PortfolioDetailRepository  # 보유 종목 목록
+      - StockPricePort             # 현재가 조회 (KIS)
+      - AnalysisUseCase            # 전략 점수 조회 (캐시)
+
+  out: >
+    차트 시각화 데이터 (프론트에서 처리),
+    수익률 히스토리 시계열 (Phase 9+),
+    벤치마크 대비 수익률 (Phase 9+)
+
+# ─────────────────────────────────────────
+# Package Structure
+# ─────────────────────────────────────────
+package_structure:
+  layout: |
+    domain/portfolio/
+      domain/
+        service/
+          PortfolioSummaryService.java     # NEW — 수익률 계산 도메인 로직
+      application/
+        usecase/
+          PortfolioSummaryUseCase.java     # NEW — Facade
+        dto/
+          response/
+            PortfolioSummaryResponse.java  # NEW
+            PortfolioItemDetail.java       # NEW
+
+    (기존 PortfolioController에 엔드포인트 추가)
+
+# ─────────────────────────────────────────
+# API Endpoints
+# ─────────────────────────────────────────
+technical_spec:
+  api:
+    - method: GET
+      path: /api/portfolio/summary
+      summary: 포트폴리오 전체 수익률 및 전략 점수 요약
+      auth: 없음
+      request: 없음
+      response:
+        dto: PortfolioSummaryResponse
+        wrapper: "ApiResponse<PortfolioSummaryResponse>"
+        fields:
+          totalInvestedAmount (BigDecimal):  "총 투자금액 (avgPrice × quantity 합산)"
+          totalCurrentAmount (BigDecimal):   "총 평가금액 (현재가 × quantity 합산)"
+          totalProfitRate (BigDecimal):      "전체 수익률 (%)"
+          avgStrategyScore (Integer):        "보유 종목 평균 종합 점수"
+          items (List<PortfolioItemDetail>): "종목별 상세"
+
+        PortfolioItemDetail:
+          - ticker
+          - companyName
+          - quantity
+          - avgPrice
+          - currentPrice
+          - profitRate (%)
+          - scores (Map<StrategyType, Integer>)
+
+  data_flow:
+    - step: 1
+      layer: Presentation
+      action: "PortfolioController.getPortfolioSummary() → PortfolioSummaryUseCase.getSummary()"
+    - step: 2
+      layer: UseCase
+      action: >
+        PortfolioSummaryUseCase:
+        1. PortfolioDetailRepository.findAllByDeletedFalse() — 보유 종목 로드
+        2. 각 종목: StockPricePort.fetchCurrentPrice(ticker) — 현재가 조회 (병렬 처리 권장)
+        3. 각 종목: AnalysisUseCase.analyze(ticker) — 전략 점수 (캐시 경유)
+        4. PortfolioSummaryService.calculate(items) — 집계 계산
+    - step: 3
+      layer: Domain
+      action: >
+        PortfolioSummaryService:
+        - profitRate = (currentPrice - avgPrice) / avgPrice * 100
+        - totalCurrentAmount = sum(currentPrice × quantity)
+        - totalProfitRate = (totalCurrentAmount - totalInvestedAmount) / totalInvestedAmount * 100
+        - avgStrategyScore = mean(각 종목 종합 점수)
+    - step: 4
+      layer: Response
+      action: "PortfolioSummaryResponse 구성 후 반환"
+
+  database:
+    entities:
+      - name: PortfolioDetail
+        action: Read
+        fields: "ticker, quantity, avgPrice (active=true 조건)"
+
+  validation_rules:
+    - "보유 종목 없으면 빈 리스트 + 금액 0 반환 (200 OK)"
+    - "현재가 조회 실패 시 해당 종목 currentPrice=null, profitRate=null로 반환 (전체 실패 안 함)"
+    - "분석 캐시 미스 종목은 점수 조회 생략 (scores 빈 Map)"
+
+# ─────────────────────────────────────────
+# Testing Strategy
+# ─────────────────────────────────────────
+testing_strategy:
+  happy_path:
+    - "보유 종목 3개, 현재가 전부 조회 성공 → totalProfitRate 정확히 계산"
+    - "avgStrategyScore = 보유 종목 전략 점수 평균값"
+  edge_cases:
+    - "보유 종목 없음 → totalInvestedAmount=0, items=[] 반환"
+    - "특정 종목 현재가 조회 실패 → 해당 종목 null 포함, 나머지 정상 계산"
+    - "분석 미캐시 종목 → scores 빈 Map, avgStrategyScore 계산에서 제외"
+  error_cases:
+    - "모든 종목 현재가 조회 실패 → totalCurrentAmount=0, 200 OK 반환"
+
+# ─────────────────────────────────────────
+# Implementation Order
+# ─────────────────────────────────────────
+implementation_order:
+  1: "PortfolioItemDetail record"
+  2: "PortfolioSummaryResponse record"
+  3: "PortfolioSummaryService (순수 계산 도메인 로직)"
+  4: "PortfolioSummaryUseCase (현재가 + 분석 조회 + 집계)"
+  5: "PortfolioController에 GET /api/portfolio/summary 엔드포인트 추가"
+  6: "단위 테스트: PortfolioSummaryService (Mock 데이터로 수익률 계산 검증)"

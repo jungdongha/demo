@@ -44,6 +44,12 @@ dependencies {
     // 웹 크롤링: Jsoup (정적 HTML 파싱 라이브러리)
     implementation 'org.jsoup:jsoup:1.18.3'
 
+    // 입력 검증 (Bean Validation / @Valid / @Pattern)
+    implementation 'org.springframework.boot:spring-boot-starter-validation'
+
+    // Swagger / OpenAPI 문서 자동 생성 (/swagger-ui.html)
+    implementation 'org.springdoc:springdoc-openapi-starter-webmvc-ui:2.6.0'
+
     // Lombok 설정
     compileOnly 'org.projectlombok:lombok'
     annotationProcessor 'org.projectlombok:lombok'

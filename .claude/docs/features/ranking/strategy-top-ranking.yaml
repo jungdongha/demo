@@ -1,0 +1,220 @@
+# Feature Specification — 전략별 Top 종목 랭킹
+# Status: Draft
+# Last Updated: 2026-06-05
+
+meta:
+  id: FEAT-015
+  title: "전략별 Top 종목 랭킹 — 등록된 종목 중 전략 점수 Top N"
+  type: Feature
+  phase: Phase 7 (추가)
+  author: Agent
+  status: Draft
+
+# ─────────────────────────────────────────
+# Overview
+# ─────────────────────────────────────────
+overview:
+  summary: >
+    등록된 전체 종목(보유 + 관심종목 유니버스) 중 특정 전략 기준으로
+    점수가 가장 높은 Top N 종목을 반환한다.
+    Magic Formula는 기존 MagicFormulaRankRepository를 재활용하고,
+    나머지 전략은 분석 히스토리 캐시를 활용한다.
+
+  user_story: >
+    As a 전략형 투자자,
+    I want to 현재 미네르비니 기준 상위 5개 종목이 무엇인지 확인하고,
+    so that 전략에 맞는 종목에 빠르게 집중 투자한다.
+
+  goals:
+    - 7개 전략 각각에 대해 Top N 종목 조회 API 제공
+    - Magic Formula는 기존 DB 랭크 데이터 재활용 (추가 계산 없음)
+    - 나머지 6개 전략은 관심종목 + 보유종목 대상으로 분석 후 정렬
+    - 결과 캐싱 (strategy + limit 키)
+
+# ─────────────────────────────────────────
+# Scope
+# ─────────────────────────────────────────
+scope:
+  in:
+    domain: analysis
+    new_domain_services:
+      - RankingService      # 전략별 랭킹 집계 로직
+    new_usecases:
+      - RankingUseCase      # Facade
+    new_dtos:
+      - RankingResponse     # ticker + companyName + score + rank
+    new_controllers:
+      - RankingController   # GET /api/ranking/{strategy}
+    reuse:
+      - MagicFormulaRankRepository   # Magic Formula 전용
+      - AnalysisUseCase              # 기타 전략 점수 (캐시)
+      - PortFolioUseCase.getWatchlist + getPortfolio  # 유니버스 구성
+
+  out: >
+    전체 상장 종목 대상 랭킹 (Phase 9 유니버스 확장 후),
+    랭킹 변동 이력 추적 (Phase 9+),
+    복수 전략 합산 랭킹 (FEAT-010 스크리닝과 연동)
+
+# ─────────────────────────────────────────
+# Package Structure
+# ─────────────────────────────────────────
+package_structure:
+  layout: |
+    domain/analysis/
+      domain/
+        service/
+          RankingService.java          # NEW — 랭킹 집계
+      application/
+        usecase/
+          RankingUseCase.java          # NEW — Facade
+        dto/
+          response/
+            RankingResponse.java       # NEW
+      presentation/
+        RankingController.java         # NEW — GET /api/ranking/{strategy}
+
+# ─────────────────────────────────────────
+# Strategy Type Mapping
+# ─────────────────────────────────────────
+strategy_mapping:
+  note: >
+    path parameter {strategy} 값과 StrategyType enum 매핑.
+    대소문자 무관 처리.
+  mapping:
+    canslim:       StrategyType.CANSLIM
+    momentum:      StrategyType.DUAL_MOMENTUM
+    seasonality:   StrategyType.SEASONALITY
+    minervini:     StrategyType.MINERVINI
+    magic:         StrategyType.MAGIC_FORMULA   # MagicFormulaRankRepository 재활용
+    piotroski:     StrategyType.PIOTROSKI
+    reversion:     StrategyType.MEAN_REVERSION
+
+# ─────────────────────────────────────────
+# API Endpoints
+# ─────────────────────────────────────────
+technical_spec:
+  api:
+    - method: GET
+      path: /api/ranking/{strategy}
+      summary: 특정 전략 기준 Top N 종목 랭킹
+      auth: 없음
+      request:
+        path_param:
+          - name: strategy
+            type: String
+            required: true
+            values: "canslim | momentum | seasonality | minervini | magic | piotroski | reversion"
+        query_params:
+          - name: limit
+            type: Integer
+            required: false
+            default: 10
+            description: "반환할 최대 종목 수 (1~50)"
+          - name: date
+            type: LocalDate
+            required: false
+            description: "Magic Formula 전용 — 랭킹 기준 날짜 (기본: 오늘)"
+      response:
+        dto: "List<RankingResponse>"
+        wrapper: "ApiResponse<List<RankingResponse>>"
+        fields:
+          - rank (Integer)
+          - ticker (String)
+          - companyName (String)
+          - score (Integer)
+          - strategyType (String)
+          - analyzedAt (LocalDateTime)
+
+  data_flow:
+    magic_formula:
+      - step: 1
+        layer: Presentation
+        action: "RankingController → RankingUseCase.getRanking('magic', limit, date)"
+      - step: 2
+        layer: UseCase
+        action: >
+          RankingUseCase: strategy == MAGIC_FORMULA 분기
+          → MagicFormulaRankRepository.findAllByRankDateOrderByCombinedRankAsc(date)
+          → limit 적용
+      - step: 3
+        layer: Response
+        action: "RankingResponse.fromMagicRank(rank) 변환"
+
+    other_strategies:
+      - step: 1
+        layer: Presentation
+        action: "RankingController → RankingUseCase.getRanking(strategy, limit, null)"
+      - step: 2
+        layer: UseCase
+        action: >
+          RankingUseCase:
+          1. 유니버스 구성: WatchlistRepo + PortfolioRepo ticker 합집합
+          2. 각 ticker: AnalysisUseCase.analyze(ticker) (캐시 경유)
+          3. RankingService.rank(results, strategyType, limit)
+      - step: 3
+        layer: Domain
+        action: >
+          RankingService:
+          - results.stream().sorted(by 해당 전략 점수 내림차순)
+          - limit 적용
+          - rank 번호 부여 (1부터)
+      - step: 4
+        layer: Response
+        action: "RankingResponse 리스트 반환"
+
+  caching:
+    key: "ranking_{strategy}_{limit}"
+    ttl: 5분 (Caffeine)
+    note: >
+      Magic Formula는 DB 조회라 캐시 선택적.
+      나머지 전략은 캐시 적극 활용 (분석 비용 절감).
+
+  database:
+    entities:
+      - name: MagicFormulaRank
+        action: Read
+        note: "strategy=magic 시만 사용"
+      - name: PortfolioDetail / Watchlist
+        action: Read
+        note: "유니버스 구성용"
+
+  validation_rules:
+    - "strategy 값 불일치 → 400 INVALID_ARGUMENT + 가능한 값 목록 반환"
+    - "limit 범위: 1~50 (초과 시 400)"
+    - "date 파라미터는 magic strategy에서만 유효 (다른 전략에서 사용 시 무시)"
+    - "유니버스 종목 없으면 빈 리스트 + 200 OK"
+
+# ─────────────────────────────────────────
+# Error Codes
+# ─────────────────────────────────────────
+error_codes:
+  note: "기존 GlobalErrorCode.INVALID_ARGUMENT 재활용"
+  new_codes: []   # 신규 에러코드 불필요
+
+# ─────────────────────────────────────────
+# Testing Strategy
+# ─────────────────────────────────────────
+testing_strategy:
+  happy_path:
+    - "GET /api/ranking/minervini?limit=5 → 미네르비니 점수 상위 5개 내림차순"
+    - "GET /api/ranking/magic?limit=10 → MagicFormulaRank DB에서 오늘 날짜 Top 10"
+    - "rank 필드가 1부터 순서대로 부여된다"
+  edge_cases:
+    - "유니버스(관심 + 보유) 종목이 limit보다 적으면 전체 반환"
+    - "모든 종목 분석 점수 동일 시 ticker 알파벳 순 보조 정렬"
+    - "magic strategy에 date 파라미터 없으면 오늘 날짜 기준"
+  error_cases:
+    - "strategy=invalid → 400 + 가능한 전략 목록 안내"
+    - "limit=0 → 400 INVALID_ARGUMENT"
+    - "limit=51 → 400 INVALID_ARGUMENT"
+
+# ─────────────────────────────────────────
+# Implementation Order
+# ─────────────────────────────────────────
+implementation_order:
+  1: "RankingResponse record"
+  2: "RankingService (전략 점수 정렬 + rank 번호 부여 순수 로직)"
+  3: "RankingUseCase (magic/기타 전략 분기 + 유니버스 구성)"
+  4: "RankingController (GET /api/ranking/{strategy}, @Validated + strategy 검증)"
+  5: "@Cacheable 캐시 설정 (CacheConfig에 'ranking' 캐시 추가)"
+  6: "단위 테스트: RankingService + RankingUseCase (Mock AnalysisUseCase, MagicFormulaRankRepository)"
