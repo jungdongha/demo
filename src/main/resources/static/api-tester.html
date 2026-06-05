@@ -361,6 +361,33 @@
     <div class="nav-item" onclick="show('watchlist-delete')">
       <span class="method-badge del">DEL</span> 관심 삭제
     </div>
+    <div class="nav-item" onclick="show('watchlist-scores')">
+      <span class="method-badge get">GET</span> 일괄 점수
+    </div>
+    <div class="nav-item" onclick="show('portfolio-summary')">
+      <span class="method-badge get">GET</span> 포트폴리오 요약
+    </div>
+
+    <div class="nav-section" style="margin-top:20px">스크리닝</div>
+    <div class="nav-item" onclick="show('screening')">
+      <span class="method-badge get">GET</span> 종목 스크리닝
+    </div>
+
+    <div class="nav-section" style="margin-top:20px">히스토리 &amp; 랭킹</div>
+    <div class="nav-item" onclick="show('history')">
+      <span class="method-badge get">GET</span> 분석 히스토리
+    </div>
+    <div class="nav-item" onclick="show('ranking')">
+      <span class="method-badge get">GET</span> 전략별 랭킹
+    </div>
+
+    <div class="nav-section" style="margin-top:20px">Admin</div>
+    <div class="nav-item" onclick="show('notify')">
+      <span class="method-badge post">POST</span> 텔레그램 알림
+    </div>
+    <div class="nav-item" onclick="show('cache-clear')">
+      <span class="method-badge del">DEL</span> 캐시 초기화
+    </div>
   </nav>
 
   <main>
@@ -616,6 +643,179 @@
       <div class="response-wrap" id="res-watchlist-delete"></div>
     </div>
 
+    <!-- ── 관심종목 일괄 점수 ── -->
+    <div class="panel" id="panel-watchlist-scores">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>관심종목 일괄 점수 조회</h2>
+        <span class="desc">/api/watchlist/scores</span>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doWatchlistScores()">▶ 조회</button>
+        <span style="font-size:12px; color:var(--muted)">현재가 + 7개 전략 점수 · totalScore 내림차순</span>
+      </div>
+      <div class="response-wrap" id="res-watchlist-scores"></div>
+    </div>
+
+    <!-- ── 포트폴리오 요약 ── -->
+    <div class="panel" id="panel-portfolio-summary">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>포트폴리오 요약 조회</h2>
+        <span class="desc">/api/portfolio/summary</span>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doPortfolioSummary()">▶ 조회</button>
+        <span style="font-size:12px; color:var(--muted)">총 투자금 · 총 평가금 · 총 수익률 · 전략점수 평균</span>
+      </div>
+      <div class="response-wrap" id="res-portfolio-summary"></div>
+    </div>
+
+    <!-- ── 종목 스크리닝 ── -->
+    <div class="panel" id="panel-screening">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>종목 스크리닝</h2>
+        <span class="desc">/api/screening</span>
+      </div>
+      <div class="form-row" style="flex-wrap:wrap; gap:10px">
+        <div class="form-group">
+          <label>CAN SLIM (최소점수)</label>
+          <input id="sc-canslim" placeholder="예: 60" style="width:120px" type="number" min="0" max="100" />
+        </div>
+        <div class="form-group">
+          <label>미네르비니</label>
+          <input id="sc-minervini" placeholder="예: 60" style="width:120px" type="number" min="0" max="100" />
+        </div>
+        <div class="form-group">
+          <label>듀얼 모멘텀</label>
+          <input id="sc-momentum" placeholder="예: 50" style="width:120px" type="number" min="0" max="100" />
+        </div>
+        <div class="form-group">
+          <label>Magic Formula</label>
+          <input id="sc-magic" placeholder="예: 50" style="width:120px" type="number" min="0" max="100" />
+        </div>
+        <div class="form-group">
+          <label>Piotroski</label>
+          <input id="sc-piotroski" placeholder="예: 50" style="width:120px" type="number" min="0" max="100" />
+        </div>
+        <div class="form-group">
+          <label>Mean Reversion</label>
+          <input id="sc-reversion" placeholder="예: 40" style="width:120px" type="number" min="0" max="100" />
+        </div>
+        <div class="form-group">
+          <label>시즌성</label>
+          <input id="sc-seasonality" placeholder="예: 40" style="width:120px" type="number" min="0" max="100" />
+        </div>
+        <div class="form-group" style="min-width:200px">
+          <label>종목코드 한정 (쉼표 구분, 비우면 관심종목 전체)</label>
+          <input id="sc-tickers" placeholder="005930,000660,AAPL" style="width:260px" />
+        </div>
+      </div>
+      <div class="form-row" style="gap:8px; padding-top:0">
+        <button class="btn btn-primary" onclick="doScreening()">🔍 스크리닝 실행</button>
+        <button class="btn btn-success" onclick="fillScreening(60,60,null,null,null,null,null)" style="font-size:12px">성장주 필터</button>
+        <button class="btn btn-success" onclick="fillScreening(null,null,null,60,60,null,null)" style="font-size:12px">가치주 필터</button>
+        <button class="btn btn-success" onclick="fillScreening(null,null,null,null,null,60,null)" style="font-size:12px">역추세 필터</button>
+        <button class="btn btn-danger" onclick="clearScreening()" style="font-size:12px">초기화</button>
+      </div>
+      <div class="response-wrap" id="res-screening"></div>
+    </div>
+
+    <!-- ── 분석 히스토리 ── -->
+    <div class="panel" id="panel-history">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>분석 히스토리 조회</h2>
+        <span class="desc">/api/analysis/{ticker}/history</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>종목코드</label>
+          <input id="h-ticker" value="005930" placeholder="005930" style="width:180px" />
+        </div>
+        <div class="form-group">
+          <label>조회 기간 (일, 최대 90)</label>
+          <input id="h-days" value="30" type="number" min="1" max="90" style="width:120px" />
+        </div>
+        <button class="btn btn-primary" onclick="doHistory()">▶ 조회</button>
+        <button class="btn btn-success" onclick="document.getElementById('h-days').value='7'" style="font-size:12px">7일</button>
+        <button class="btn btn-success" onclick="document.getElementById('h-days').value='30'" style="font-size:12px">30일</button>
+        <button class="btn btn-success" onclick="document.getElementById('h-days').value='90'" style="font-size:12px">90일</button>
+      </div>
+      <div class="response-wrap" id="res-history"></div>
+    </div>
+
+    <!-- ── 전략별 랭킹 ── -->
+    <div class="panel" id="panel-ranking">
+      <div class="panel-header">
+        <span class="method-badge get" style="font-size:11px">GET</span>
+        <h2>전략별 상위 종목 랭킹</h2>
+        <span class="desc">/api/ranking/{strategy}</span>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>전략</label>
+          <select id="r-strategy" style="width:200px">
+            <option value="total">종합 (total)</option>
+            <option value="canslim">CAN SLIM</option>
+            <option value="minervini">미네르비니</option>
+            <option value="momentum">듀얼 모멘텀</option>
+            <option value="magic">Magic Formula</option>
+            <option value="piotroski">Piotroski</option>
+            <option value="reversion">Mean Reversion</option>
+            <option value="seasonality">시즌성</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>상위 N개 (1~50)</label>
+          <input id="r-limit" value="10" type="number" min="1" max="50" style="width:100px" />
+        </div>
+        <button class="btn btn-primary" onclick="doRanking()">▶ 랭킹 조회</button>
+      </div>
+      <div class="response-wrap" id="res-ranking"></div>
+    </div>
+
+    <!-- ── 텔레그램 알림 ── -->
+    <div class="panel" id="panel-notify">
+      <div class="panel-header">
+        <span class="method-badge post" style="font-size:11px">POST</span>
+        <h2>텔레그램 관심종목 알림 수동 발송</h2>
+        <span class="desc">/api/admin/notify/watchlist</span>
+      </div>
+      <div class="form-row">
+        <button class="btn btn-primary" onclick="doNotify()">📨 알림 발송</button>
+        <span style="font-size:12px; color:var(--muted)">TELEGRAM_BOT_TOKEN / CHAT_ID 환경변수 설정 필요</span>
+      </div>
+      <div class="response-wrap" id="res-notify"></div>
+    </div>
+
+    <!-- ── 캐시 초기화 ── -->
+    <div class="panel" id="panel-cache-clear">
+      <div class="panel-header">
+        <span class="method-badge del" style="font-size:11px">DEL</span>
+        <h2>캐시 초기화</h2>
+        <span class="desc">/api/admin/cache/{cacheName}</span>
+      </div>
+      <div class="form-row" style="flex-wrap:wrap; gap:8px">
+        <div class="form-group">
+          <label>캐시 이름</label>
+          <select id="cache-name" style="width:200px">
+            <option value="analysis">analysis (종목분석)</option>
+            <option value="stocks">stocks (종목목록)</option>
+            <option value="marketRegime">marketRegime (시장국면)</option>
+            <option value="ranking">ranking (전략랭킹)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>캐시 키 (비우면 전체 삭제)</label>
+          <input id="cache-key" placeholder="예: 005930  (비우면 전체)" style="width:220px" />
+        </div>
+        <button class="btn btn-danger" onclick="doCacheClear()">🗑 캐시 삭제</button>
+      </div>
+      <div class="response-wrap" id="res-cache-clear"></div>
+    </div>
+
   </main>
 </div>
 
@@ -674,14 +874,19 @@
 
     // 특수 렌더링
     let extra = '';
-    if (method === 'GET' && url.includes('/analysis/')) extra = renderAnalysis(data);
+    if (method === 'GET' && url.includes('/history')) extra = renderHistory(data);
+    else if (method === 'GET' && url.includes('/analysis/')) extra = renderAnalysis(data);
     else if (method === 'GET' && url.includes('/market/regime')) extra = renderRegime(data);
     else if (method === 'GET' && url.includes('/stocks/search')) extra = renderSearch(data);
     else if (method === 'GET' && url.endsWith('/stocks')) extra = renderSearch(data);
     else if (method === 'GET' && url.includes('/ranks')) extra = renderRanks(data);
     else if (method === 'GET' && url.includes('/universe')) extra = renderUniverse(data);
+    else if (method === 'GET' && url.includes('/portfolio/summary')) extra = renderPortfolioSummary(data);
     else if (method === 'GET' && url.includes('/portfolio')) extra = renderPortfolio(data);
+    else if (method === 'GET' && url.includes('/watchlist/scores')) extra = renderWatchlistScores(data);
     else if (method === 'GET' && url.includes('/watchlist')) extra = renderSearch(data);
+    else if (method === 'GET' && url.includes('/screening')) extra = renderScreening(data);
+    else if (method === 'GET' && url.includes('/ranking/')) extra = renderRanking(data);
 
     wrap.innerHTML = `
       ${extra}
@@ -912,6 +1117,126 @@
     `;
   }
 
+  function renderWatchlistScores(data) {
+    if (!data || !data.length) return `<div style="padding:12px 24px; color:var(--muted); font-size:13px">데이터 없음 (관심종목 등록 후 분석 필요)</div>`;
+    const rows = data.map((s, i) => {
+      const score = s.totalScore;
+      const scoreColor = score >= 70 ? 'var(--green)' : score >= 50 ? 'var(--cyan)' : 'var(--yellow)';
+      const scoreHtml = score != null ? `<b style="color:${scoreColor}">${score}</b>` : '—';
+      const strategies = s.scores ? Object.entries(s.scores).map(([k,v]) => `<span style="font-size:10px;color:var(--muted)">${k}:</span><b style="font-size:11px">${v}</b>`).join(' · ') : '';
+      return `<tr>
+        <td style="font-weight:700;color:${i<3?'var(--yellow)':'var(--text)'}">${i+1}</td>
+        <td>${s.ticker}</td>
+        <td>${s.companyName || '—'}</td>
+        <td>${s.currentPrice != null ? Number(s.currentPrice).toLocaleString('ko-KR') : '—'}</td>
+        <td>${scoreHtml}</td>
+        <td style="font-size:11px">${strategies}</td>
+      </tr>`;
+    }).join('');
+    return `<div style="padding:16px 24px">
+      <div class="scrollable"><table>
+        <thead><tr><th>#</th><th>티커</th><th>종목명</th><th>현재가</th><th>종합</th><th>전략별 점수</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div class="section-title" style="margin-top:16px">원본 JSON</div>
+    </div>`;
+  }
+
+  function renderPortfolioSummary(data) {
+    if (!data) return '';
+    const rateColor = data.totalProfitRate > 0 ? 'var(--green)' : data.totalProfitRate < 0 ? 'var(--red)' : 'var(--text)';
+    const items = (data.items || []).map(it => {
+      const pr = it.profitRate;
+      const c = pr > 0 ? 'var(--green)' : pr < 0 ? 'var(--red)' : 'var(--text)';
+      return `<tr>
+        <td>${it.ticker}</td><td>${it.companyName||'—'}</td><td>${it.quantity||'—'}</td>
+        <td>${it.avgPrice!=null?Number(it.avgPrice).toLocaleString('ko-KR'):'—'}</td>
+        <td>${it.currentPrice!=null?Number(it.currentPrice).toLocaleString('ko-KR'):'—'}</td>
+        <td><span style="color:${c}">${pr!=null?(pr>0?'+':'')+pr+'%':'—'}</span></td>
+      </tr>`;
+    }).join('');
+    return `<div style="padding:16px 24px">
+      <div class="info-grid" style="margin-bottom:16px">
+        ${infoItem('총 투자금', data.totalInvestedAmount != null ? Number(data.totalInvestedAmount).toLocaleString('ko-KR') + '원' : '—')}
+        ${infoItem('총 평가금', data.totalCurrentAmount != null ? Number(data.totalCurrentAmount).toLocaleString('ko-KR') + '원' : '—')}
+        ${infoItem('총 수익률', data.totalProfitRate != null ? `<span style="color:${rateColor}">${data.totalProfitRate>0?'+':''}${data.totalProfitRate}%</span>` : '—')}
+        ${infoItem('전략점수 평균', data.avgStrategyScore != null ? data.avgStrategyScore + 'pt' : '—')}
+      </div>
+      <div class="scrollable"><table>
+        <thead><tr><th>티커</th><th>종목명</th><th>수량</th><th>평균단가</th><th>현재가</th><th>수익률</th></tr></thead>
+        <tbody>${items}</tbody>
+      </table></div>
+      <div class="section-title" style="margin-top:16px">원본 JSON</div>
+    </div>`;
+  }
+
+  function renderScreening(data) {
+    if (!data || !data.length) return `<div style="padding:12px 24px; color:var(--muted); font-size:13px">조건에 맞는 종목 없음</div>`;
+    const rows = data.map((s, i) => {
+      const strategies = s.passedStrategies ? s.passedStrategies.map(p => `<span class="tag tag-green">${p}</span>`).join('') : '';
+      return `<tr>
+        <td style="font-weight:700;color:${i<3?'var(--yellow)':'var(--text)'}">${i+1}</td>
+        <td>${s.ticker}</td>
+        <td>${s.companyName||'—'}</td>
+        <td><b style="color:var(--cyan)">${s.totalScore??'—'}</b></td>
+        <td style="font-size:11px">${strategies}</td>
+      </tr>`;
+    }).join('');
+    return `<div style="padding:16px 24px">
+      <p style="font-size:13px; color:var(--muted); margin-bottom:12px">총 ${data.length}개 종목 통과</p>
+      <div class="scrollable"><table>
+        <thead><tr><th>#</th><th>티커</th><th>종목명</th><th>종합점수</th><th>통과 전략</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div class="section-title" style="margin-top:16px">원본 JSON</div>
+    </div>`;
+  }
+
+  function renderHistory(data) {
+    if (!data || !data.length) return `<div style="padding:12px 24px; color:var(--muted); font-size:13px">히스토리 없음 (분석 API 먼저 호출 필요)</div>`;
+    const rows = data.map(h => {
+      const sc = h.scores || {};
+      return `<tr>
+        <td>${h.analyzeDate}</td>
+        <td><b style="color:var(--cyan)">${h.totalScore??'—'}</b></td>
+        <td>${sc.CANSLIM??'—'}</td>
+        <td>${sc.MINERVINI??'—'}</td>
+        <td>${sc.DUAL_MOMENTUM??'—'}</td>
+        <td>${sc.MAGIC_FORMULA??'—'}</td>
+        <td>${sc.PIOTROSKI??'—'}</td>
+        <td>${sc.MEAN_REVERSION??'—'}</td>
+        <td>${sc.SEASONALITY??'—'}</td>
+      </tr>`;
+    }).join('');
+    return `<div style="padding:16px 24px">
+      <div class="scrollable"><table>
+        <thead><tr><th>날짜</th><th>종합</th><th>CANSLIM</th><th>미네르비니</th><th>모멘텀</th><th>Magic</th><th>Piotroski</th><th>역추세</th><th>시즌성</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div class="section-title" style="margin-top:16px">원본 JSON</div>
+    </div>`;
+  }
+
+  function renderRanking(data) {
+    if (!data || !data.length) return `<div style="padding:12px 24px; color:var(--muted); font-size:13px">랭킹 데이터 없음 (분석 API 먼저 호출 필요)</div>`;
+    const rows = data.map(r => {
+      const scoreColor = r.score >= 70 ? 'var(--green)' : r.score >= 50 ? 'var(--cyan)' : 'var(--yellow)';
+      return `<tr>
+        <td style="font-weight:700;color:${r.rank<=3?'var(--yellow)':'var(--text)'}">${r.rank}</td>
+        <td>${r.ticker}</td>
+        <td>${r.companyName||'—'}</td>
+        <td><b style="color:${scoreColor}">${r.score??'—'}</b></td>
+      </tr>`;
+    }).join('');
+    return `<div style="padding:16px 24px">
+      <div class="scrollable"><table>
+        <thead><tr><th>순위</th><th>티커</th><th>종목명</th><th>점수</th></tr></thead>
+        <tbody>${rows}</tbody>
+      </table></div>
+      <div class="section-title" style="margin-top:16px">원본 JSON</div>
+    </div>`;
+  }
+
   function infoItem(k, v) {
     return `<div class="info-item"><div class="k">${k}</div><div class="v">${v ?? '—'}</div></div>`;
   }
@@ -1005,6 +1330,68 @@
     callApi('DELETE', `${base()}/api/watchlist/${id}`, null, 'res-watchlist-delete');
   }
 
+  function doWatchlistScores() {
+    callApi('GET', `${base()}/api/watchlist/scores`, null, 'res-watchlist-scores');
+  }
+
+  function doPortfolioSummary() {
+    callApi('GET', `${base()}/api/portfolio/summary`, null, 'res-portfolio-summary');
+  }
+
+  function doScreening() {
+    const params = new URLSearchParams();
+    const map = { canslim: 'sc-canslim', momentum: 'sc-momentum', seasonality: 'sc-seasonality',
+                  minervini: 'sc-minervini', magic: 'sc-magic', piotroski: 'sc-piotroski', reversion: 'sc-reversion' };
+    let hasCondition = false;
+    for (const [key, id] of Object.entries(map)) {
+      const val = document.getElementById(id).value.trim();
+      if (val !== '') { params.append(key, val); hasCondition = true; }
+    }
+    const tickers = document.getElementById('sc-tickers').value.trim();
+    if (tickers) params.append('tickers', tickers);
+    if (!hasCondition) return alert('최소 하나의 전략 점수 조건을 입력해주세요.');
+    callApi('GET', `${base()}/api/screening?${params.toString()}`, null, 'res-screening');
+  }
+
+  function fillScreening(canslim, minervini, momentum, magic, piotroski, reversion, seasonality) {
+    const map = { 'sc-canslim': canslim, 'sc-minervini': minervini, 'sc-momentum': momentum,
+                  'sc-magic': magic, 'sc-piotroski': piotroski, 'sc-reversion': reversion, 'sc-seasonality': seasonality };
+    for (const [id, val] of Object.entries(map)) {
+      document.getElementById(id).value = val != null ? val : '';
+    }
+  }
+
+  function clearScreening() {
+    ['sc-canslim','sc-momentum','sc-seasonality','sc-minervini','sc-magic','sc-piotroski','sc-reversion','sc-tickers']
+      .forEach(id => document.getElementById(id).value = '');
+  }
+
+  function doHistory() {
+    const ticker = document.getElementById('h-ticker').value.trim();
+    const days = document.getElementById('h-days').value.trim() || '30';
+    if (!ticker) return alert('종목코드를 입력해주세요.');
+    callApi('GET', `${base()}/api/analysis/${ticker}/history?days=${days}`, null, 'res-history');
+  }
+
+  function doRanking() {
+    const strategy = document.getElementById('r-strategy').value;
+    const limit = document.getElementById('r-limit').value || '10';
+    callApi('GET', `${base()}/api/ranking/${strategy}?limit=${limit}`, null, 'res-ranking');
+  }
+
+  function doNotify() {
+    callApi('POST', `${base()}/api/admin/notify/watchlist`, {}, 'res-notify');
+  }
+
+  function doCacheClear() {
+    const name = document.getElementById('cache-name').value;
+    const key = document.getElementById('cache-key').value.trim();
+    const url = key
+      ? `${base()}/api/admin/cache/${name}/${encodeURIComponent(key)}`
+      : `${base()}/api/admin/cache/${name}`;
+    callApi('DELETE', url, null, 'res-cache-clear');
+  }
+
   // ── 키보드 단축키 ─────────────────────────────────────────
   document.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && e.key === 'Enter') {
@@ -1016,7 +1403,11 @@
         'mf-universe': doMfUniverse, 'mf-add': doMfAdd, 'mf-remove': doMfRemove,
         'mf-run': doMfRun, 'mf-ranks': doMfRanks,
         'portfolio': doPortfolio, 'portfolio-add': doPortfolioAdd, 'portfolio-delete': doPortfolioDelete,
-        'watchlist': doWatchlist, 'watchlist-add': doWatchlistAdd, 'watchlist-delete': doWatchlistDelete
+        'portfolio-summary': doPortfolioSummary,
+        'watchlist': doWatchlist, 'watchlist-add': doWatchlistAdd, 'watchlist-delete': doWatchlistDelete,
+        'watchlist-scores': doWatchlistScores,
+        'screening': doScreening, 'history': doHistory, 'ranking': doRanking,
+        'notify': doNotify, 'cache-clear': doCacheClear
       };
       if (map[id]) map[id]();
     }
