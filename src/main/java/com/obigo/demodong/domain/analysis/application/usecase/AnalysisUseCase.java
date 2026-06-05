@@ -7,6 +7,7 @@ import com.obigo.demodong.domain.analysis.domain.enums.StrategyType;
 import com.obigo.demodong.domain.analysis.domain.model.MomentumSnapshot;
 import com.obigo.demodong.domain.analysis.domain.model.StrategyInput;
 import com.obigo.demodong.domain.analysis.domain.model.StrategyScore;
+import com.obigo.demodong.domain.analysis.domain.service.AnalysisHistoryWriter;
 import com.obigo.demodong.domain.analysis.domain.service.MarketRegimeService;
 import com.obigo.demodong.domain.flow.domain.model.FlowSnapshot;
 import com.obigo.demodong.domain.flow.domain.port.FlowDataPort;
@@ -73,6 +74,7 @@ public class AnalysisUseCase {
     private final ReturnCalculator returnCalculator;
     private final RsRatingCalculator rsRatingCalculator;
     private final DartCorpCodeMapper dartCorpCodeMapper;
+    private final AnalysisHistoryWriter analysisHistoryWriter;
 
     /** 시장 지수 대리: KOSPI 지수 종목코드 */
     private static final String KOSPI_TICKER = "0001";
@@ -154,7 +156,7 @@ public class AnalysisUseCase {
 
         log.info("[Analysis] 분석 완료 - ticker: {}, 전략수: {}", ticker, strategies.size());
 
-        return new AnalysisResponse(
+        AnalysisResponse result = new AnalysisResponse(
                 stock.getTicker(),
                 stock.getName(),
                 stock.getMarketType().name(),
@@ -166,6 +168,11 @@ public class AnalysisUseCase {
                 FlowResponse.from(flow, tradingValue, volumeChangeRate),
                 regime != null ? regime.name() : MarketRegime.SIDEWAYS.name()
         );
+
+        // 히스토리 비동기 저장 — API 응답 차단 안 함
+        analysisHistoryWriter.upsert(result);
+
+        return result;
     }
 
     // ─────────────────────────────────────────────────────────────────
