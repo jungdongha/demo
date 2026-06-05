@@ -1,0 +1,41 @@
+# 로컬 개발용 PostgreSQL 컨테이너
+#
+# 기동:  docker-compose -f docker-compose.local.yml up -d
+# 중단:  docker-compose -f docker-compose.local.yml down
+# 데이터 초기화: docker-compose -f docker-compose.local.yml down -v
+#
+# 접속 정보 (DBeaver / DataGrip 등):
+#   Host:     localhost
+#   Port:     5433  (프로덕션 5432와 충돌 방지)
+#   Database: quantdb_local
+#   User:     quantdev
+#   Password: quantdev123
+#
+# Spring Boot 연결 시:
+#   application-local.yaml의 주석 처리된 PostgreSQL 섹션 활성화
+
+version: '3.8'
+
+services:
+  postgres-local:
+    image: postgres:16-alpine
+    container_name: quant-postgres-local
+    environment:
+      POSTGRES_DB: quantdb_local
+      POSTGRES_USER: quantdev
+      POSTGRES_PASSWORD: quantdev123
+      PGDATA: /var/lib/postgresql/data/pgdata
+    ports:
+      - "5433:5432"
+    volumes:
+      - quant_postgres_local_data:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quantdev -d quantdb_local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  quant_postgres_local_data:
+    driver: local
